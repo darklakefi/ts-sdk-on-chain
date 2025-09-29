@@ -1,15 +1,13 @@
-import { Accounts } from '@coral-xyz/anchor';
 import { AccountMeta, PublicKey } from '@solana/web3.js';
 import BN from 'bn.js';
-import Decimal from 'decimal.js';
 
 // Core types matching Rust structs
 export interface Quote {
-  inAmount: bigint;
-  outAmount: bigint;
-  feeAmount: bigint;
+  inAmount: BN;
+  outAmount: BN;
+  feeAmount: BN;
   feeMint: PublicKey;
-  feePct: bigint;
+  feePct: BN;
 }
 
 export interface Order {
@@ -128,9 +126,9 @@ export interface SwapParamsIx {
   sourceMint: PublicKey;
   destinationMint: PublicKey;
   tokenTransferAuthority: PublicKey;
-  inAmount: bigint;
+  inAmount: BN;
   swapMode: SwapMode;
-  minOut: bigint;
+  minOut: BN;
   salt: Uint8Array;
 }
 
@@ -138,26 +136,26 @@ export interface FinalizeParamsIx {
   settleSigner: PublicKey;
   orderOwner: PublicKey;
   unwrapWsol: boolean;
-  minOut: bigint;
+  minOut: BN;
   salt: Uint8Array;
-  output: bigint;
+  output: BN;
   commitment: Uint8Array;
-  deadline: bigint;
-  currentSlot: bigint;
+  deadline: BN;
+  currentSlot: BN;
 }
 
 export interface AddLiquidityParamsIx {
   user: PublicKey;
-  amountLp: bigint;
-  maxAmountX: bigint;
-  maxAmountY: bigint;
+  amountLp: BN;
+  maxAmountX: BN;
+  maxAmountY: BN;
 }
 
 export interface RemoveLiquidityParamsIx {
   user: PublicKey;
-  amountLp: bigint;
-  minAmountX: bigint;
-  minAmountY: bigint;
+  amountLp: BN;
+  minAmountX: BN;
+  minAmountY: BN;
 }
 
 export interface InitializePoolParamsIx {
@@ -166,8 +164,8 @@ export interface InitializePoolParamsIx {
   tokenXProgram: PublicKey;
   tokenY: PublicKey;
   tokenYProgram: PublicKey;
-  amountX: bigint;
-  amountY: bigint;
+  amountX: BN;
+  amountY: BN;
 }
 
 // Internal parameter interfaces
@@ -179,30 +177,30 @@ export interface FinalizeParams {
   settleSigner: PublicKey;
   orderOwner: PublicKey;
   unwrapWsol: boolean;
-  minOut: bigint;
+  minOut: BN;
   salt: Uint8Array;
-  output: bigint;
+  output: BN;
   commitment: Uint8Array;
-  deadline: bigint;
-  currentSlot: bigint;
+  deadline: BN;
+  currentSlot: BN;
   refCode?: Uint8Array;
   label?: Uint8Array;
 }
 
 export interface AddLiquidityParams {
   user: PublicKey;
-  amountLp: bigint;
-  maxAmountX: bigint;
-  maxAmountY: bigint;
+  amountLp: BN;
+  maxAmountX: BN;
+  maxAmountY: BN;
   refCode?: Uint8Array;
   label?: Uint8Array;
 }
 
 export interface RemoveLiquidityParams {
   user: PublicKey;
-  amountLp: bigint;
-  minAmountX: bigint;
-  minAmountY: bigint;
+  amountLp: BN;
+  minAmountX: BN;
+  minAmountY: BN;
   label?: Uint8Array;
 }
 
@@ -212,8 +210,8 @@ export interface InitializePoolParams {
   tokenXProgram: PublicKey;
   tokenY: PublicKey;
   tokenYProgram: PublicKey;
-  amountX: bigint;
-  amountY: bigint;
+  amountX: BN;
+  amountY: BN;
   label?: Uint8Array;
 }
 
@@ -221,12 +219,12 @@ export interface SettleParams {
   settleSigner: PublicKey;
   orderOwner: PublicKey;
   unwrapWsol: boolean;
-  minOut: bigint;
+  minOut: BN;
   salt: Uint8Array;
-  output: bigint;
+  output: BN;
   commitment: Uint8Array;
-  deadline: bigint;
-  currentSlot: bigint;
+  deadline: BN;
+  currentSlot: BN;
   refCode?: Uint8Array;
   label?: Uint8Array;
 }
@@ -234,28 +232,28 @@ export interface SettleParams {
 export interface CancelParams {
   settleSigner: PublicKey;
   orderOwner: PublicKey;
-  minOut: bigint;
+  minOut: BN;
   salt: Uint8Array;
-  output: bigint;
+  output: BN;
   commitment: Uint8Array;
-  deadline: bigint;
-  currentSlot: bigint;
+  deadline: BN;
+  currentSlot: BN;
   label?: Uint8Array;
 }
 
 export interface SlashParams {
   settleSigner: PublicKey;
   orderOwner: PublicKey;
-  deadline: bigint;
-  currentSlot: bigint;
+  deadline: BN;
+  currentSlot: BN;
   label?: Uint8Array;
 }
 
 export interface QuoteParams {
   inputMint: PublicKey;
-  amount: bigint;
+  amount: BN;
   swapMode: SwapMode;
-  epoch: bigint;
+  epoch: BN;
 }
 
 // Proof-related types
@@ -334,7 +332,7 @@ export interface InitializePoolAndAccountMetas {
 
 // Darklake AMM specific parameter types
 export interface DarklakeAmmSwapParams {
-  amountIn: bigint;
+  amountIn: BN;
   isSwapXToY: boolean;
   cMin: Uint8Array;
   label?: Uint8Array;
