@@ -322,11 +322,11 @@ export class DarklakeAmm {
     let inputTransferFee = 0n;
     if (isSwapXToY) { 
       if (this.tokenXTransferFeeConfig) {
-        inputTransferFee = calculateEpochFee(this.tokenXTransferFeeConfig, quoteParams.epoch, quoteParams.amount);
+        inputTransferFee = calculateEpochFee(this.tokenXTransferFeeConfig, BigInt(quoteParams.epoch.toString()), BigInt(quoteParams.amount.toString()));
       }
     } else {
       if (this.tokenYTransferFeeConfig) {
-        inputTransferFee = calculateEpochFee(this.tokenYTransferFeeConfig, quoteParams.epoch, quoteParams.amount);
+        inputTransferFee = calculateEpochFee(this.tokenYTransferFeeConfig, BigInt(quoteParams.epoch.toString()), BigInt(quoteParams.amount.toString()));
       }
     }
 
@@ -357,11 +357,11 @@ export class DarklakeAmm {
     let outputTransferFee = 0n;
     if (isSwapXToY) { 
       if (this.tokenXTransferFeeConfig) {
-        outputTransferFee = calculateEpochFee(this.tokenXTransferFeeConfig, quoteParams.epoch, quoteParams.amount);
+        outputTransferFee = calculateEpochFee(this.tokenXTransferFeeConfig, BigInt(quoteParams.epoch.toString()), BigInt(quoteParams.amount.toString()));
       }
     } else {
       if (this.tokenYTransferFeeConfig) {
-        outputTransferFee = calculateEpochFee(this.tokenYTransferFeeConfig, quoteParams.epoch, quoteParams.amount);
+        outputTransferFee = calculateEpochFee(this.tokenYTransferFeeConfig, BigInt(quoteParams.epoch.toString()), BigInt(quoteParams.amount.toString()));
       }
     }
 
@@ -369,16 +369,16 @@ export class DarklakeAmm {
 
     if (outputAmount.lt(new BN(0))) {
       throw new Error('Output amount is negative');
-    }
+    } 
 
     // Simplified quote calculation
     // In practice, you'd implement the full DEX math
     return {
-      inAmount: BigInt(inputAmount.toString()),
-      outAmount: BigInt(outputAmount.toString()),
-      feeAmount: BigInt(quoteOutput.tradeFee.toString()),
+      inAmount: quoteOutput.fromAmount,
+      outAmount: outputAmount,
+      feeAmount: quoteOutput.tradeFee,
       feeMint: isSwapXToY ? this.pool.tokenMintX : this.pool.tokenMintY,
-      feePct: BigInt(this.ammConfig.tradeFeeRate.toString())
+      feePct: this.ammConfig.tradeFeeRate
     };
   }
 
@@ -401,7 +401,7 @@ export class DarklakeAmm {
 
     
     const saltBn = uint8ArrayToBigInt(salt);
-    const commitment = await generatePoseidonCommitment(BigInt(minOut), saltBn);
+    const commitment = await generatePoseidonCommitment(BigInt(minOut.toString()), saltBn);
 
     const discriminator = new Uint8Array([248, 198, 158, 145, 225, 117, 135, 200]);
 
@@ -905,7 +905,7 @@ export class DarklakeAmm {
       // Deserialize legacy SPL token account
       try {
         const tokenAccount = AccountLayout.decode(accountData);
-        return new BN(tokenAccount.amount, 'le');
+        return new BN(tokenAccount.amount.toString());
       } catch (error) {
         throw new Error(`Failed to deserialize legacy SPL token account: ${error}`);
       }
@@ -920,7 +920,7 @@ export class DarklakeAmm {
         // but with additional metadata at the end
         const baseAccountData = accountData.slice(0, AccountLayout.span);
         const tokenAccount = AccountLayout.decode(baseAccountData);
-        return new BN(tokenAccount.amount, 'le');
+        return new BN(tokenAccount.amount.toString());
       } catch (error) {
         throw new Error(`Failed to deserialize Token-2022 account: ${error}`);
       }

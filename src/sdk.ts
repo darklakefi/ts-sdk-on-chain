@@ -1,14 +1,14 @@
 import { AccountInfo, Commitment, Connection, KeyedAccountInfo, Keypair, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { DarklakeAmm } from "./darklake-amm";
 import { convertStringToBytesArray, generateRandomSalt, getAddressLookupTable, getCloseWsolInstructions, getWrapSolToWsolInstructions, uint8ArrayToBigInt } from "./utils";
-import { AccountData, AddLiquidityParams, AddLiquidityParamsIx, CancelParams, FinalizeParams, FinalizeParamsIx, GeneratedProof, InitializePoolParams, InitializePoolParamsIx, Order, Quote, RemoveLiquidityParams, RemoveLiquidityParamsIx, SettleParams, SlashParams, SwapMode, SwapParams, SwapParamsIx } from "./types";
+import { AccountData, AddLiquidityParams, AddLiquidityParamsIx, CancelParams, FinalizeParamsIx, GeneratedProof, InitializePoolParams, InitializePoolParamsIx, Order, Quote, RemoveLiquidityParams, RemoveLiquidityParamsIx, SettleParams, SlashParams, SwapMode, SwapParams, SwapParamsIx } from "./types";
 import { SOL_MINT } from "./constants";
-import { ASSOCIATED_TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddress, NATIVE_MINT, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddress, NATIVE_MINT } from "@solana/spl-token";
 import { Darklake } from "./darklake-type";
 import { AnchorProvider, Program, Wallet, web3 } from "@coral-xyz/anchor";
 import idl from "./darklake-idl.json";
-import { BN } from "bn.js";
-import { generatePoseidonCommitment, generateProof } from "./zk/proof";
+import BN from "bn.js";
+import { generateProof } from "./zk/proof";
 import { toBigInt } from "./zk/utils";
 
 export class DarklakeSDK {
@@ -58,7 +58,7 @@ export class DarklakeSDK {
       this.program = new Program(idl as Darklake, provider);
     }
 
-    public async quote(tokenIn: PublicKey, tokenOut: PublicKey, amountIn: bigint): Promise<Quote> {
+    public async quote(tokenIn: PublicKey, tokenOut: PublicKey, amountIn: BN): Promise<Quote> {
       try {
         const isFromSol = tokenIn.equals(SOL_MINT);
         const isToSol = tokenOut.equals(SOL_MINT);
@@ -78,7 +78,7 @@ export class DarklakeSDK {
           swapMode: SwapMode.ExactIn,
           inputMint: tokenIn_,
           amount: amountIn,
-          epoch: BigInt((await this.connection.getEpochInfo()).epoch),
+          epoch: new BN((await this.connection.getEpochInfo()).epoch),
         });
       } catch (error) {
         throw new Error('Failed to get quote: ' + error);
@@ -88,13 +88,13 @@ export class DarklakeSDK {
     public async swapTx(
       tokenIn: PublicKey,
       tokenOut: PublicKey,
-      amountIn: bigint,
-      minAmountOut: bigint,
+      amountIn: BN,
+      minAmountOut: BN,
       tokenOwner: PublicKey
     ): Promise<{
       tx: VersionedTransaction,
       orderKey: PublicKey,
-      minOut: bigint,
+      minOut: BN,
       salt: Uint8Array
     }> {
       try {
@@ -168,7 +168,7 @@ export class DarklakeSDK {
     public async finalizeTx(
       orderKey: PublicKey,
       unwrapWsol: boolean,
-      minOut: bigint,
+      minOut: BN,
       salt: Uint8Array,
       settleSigner?: PublicKey
     ): Promise<{
@@ -201,10 +201,10 @@ export class DarklakeSDK {
           unwrapWsol: unwrapWsol,
           minOut: minOut,
           salt: salt,
-          output: BigInt(order.dOut.toString()),
+          output: order.dOut,
           commitment: order.cMin,
-          deadline: BigInt(order.deadline.toString()),
-          currentSlot: BigInt((await this.connection.getSlot('processed'))),
+          deadline: order.deadline,
+          currentSlot: new BN(await this.connection.getSlot('processed')),
         }
 
         const finalizeInstruction = await this.finalizeIx(finalizeParamsIx);
@@ -240,9 +240,9 @@ export class DarklakeSDK {
     public async addLiquidityTx(
       tokenX: PublicKey,
       tokenY: PublicKey,
-      maxAmountX: bigint,
-      maxAmountY: bigint,
-      amountLp: bigint,
+      maxAmountX: BN,
+      maxAmountY: BN,
+      amountLp: BN,
       user: PublicKey
     ): Promise<{
       tx: VersionedTransaction,
@@ -315,9 +315,9 @@ export class DarklakeSDK {
     public async removeLiquidityTx(
       tokenX: PublicKey,
       tokenY: PublicKey,
-      minAmountX: bigint,
-      minAmountY: bigint,
-      amountLp: bigint,
+      minAmountX: BN,
+      minAmountY: BN,
+      amountLp: BN,
       user: PublicKey
     ): Promise<{
       tx: VersionedTransaction,
@@ -407,8 +407,8 @@ export class DarklakeSDK {
     public async initializePoolTx(
       tokenX: PublicKey,
       tokenY: PublicKey,
-      amountX: bigint,
-      amountY: bigint,
+      amountX: BN,
+      amountY: BN,
       user: PublicKey
     ): Promise<{
       tx: VersionedTransaction,
@@ -437,9 +437,6 @@ export class DarklakeSDK {
         if (!tokenYAccount) {
           throw new Error('Token Y account not found');
         }
-        
-        console.log('Token X account owner: ', tokenXAccount.owner.toString());
-        console.log('Token Y account owner: ', tokenYAccount.owner.toString());
 
         const initializePoolParamsIx: InitializePoolParamsIx = {
           user: user,
@@ -528,16 +525,9 @@ export class DarklakeSDK {
     // INSTRUCTION METHODS (PRONE TO CHANGE)
 
     public async swapIx(swapParamsIx: SwapParamsIx): Promise<TransactionInstruction> {
-
       const swapParams: SwapParams = {
-        sourceMint: swapParamsIx.sourceMint,
-        destinationMint: swapParamsIx.destinationMint,
-        tokenTransferAuthority: swapParamsIx.tokenTransferAuthority,
-        inAmount: swapParamsIx.inAmount,
-        swapMode: swapParamsIx.swapMode,
-        minOut: swapParamsIx.minOut,
-        salt: swapParamsIx.salt,
-        label: this.label
+        ...swapParamsIx,
+        label: this.label,
       }
 
       const swapAndAccountMetas = await this.darklakeAmm.getSwapAndAccountMetas(swapParams);
@@ -736,19 +726,20 @@ export class DarklakeSDK {
     }
 
     private getPoolAddress(tokenMintX: PublicKey, tokenMintY: PublicKey): [PublicKey, PublicKey, PublicKey] {
+      const [tokenMintX_, tokenMintY_] = this.sortTokens(tokenMintX, tokenMintY); 
+
+      const poolKey = DarklakeAmm.getPoolAddress(tokenMintX_, tokenMintY_);
+
+      return [poolKey, tokenMintX_, tokenMintY_];
+    }
+
+    public sortTokens(tokenMintX: PublicKey, tokenMintY: PublicKey): [PublicKey, PublicKey] {
       if (
         tokenMintX.toBuffer()
             .compare(tokenMintY.toBuffer()) > 0
       ) {
-          const temp = tokenMintX;
-          tokenMintX = tokenMintY;
-          tokenMintY = temp;
+        return [tokenMintY, tokenMintX];
       }
-
-      const poolKey = DarklakeAmm.getPoolAddress(tokenMintX, tokenMintY);
-
-
-
-      return [poolKey, tokenMintX, tokenMintY];
+      return [tokenMintX, tokenMintY];
     }
   }
