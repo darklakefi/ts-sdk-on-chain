@@ -7,8 +7,9 @@ This directory contains practical examples demonstrating how to use the Darklake
 The Darklake SDK provides two types of functions for each operation:
 
 ### Transaction Functions (ending with 'tx')
+
 - **Purpose**: Return complete `VersionedTransaction` objects ready to be signed and sent
-- **Features**: 
+- **Features**:
   - Automatically handle SOL/WSOL wrapping
   - Include all necessary instructions
   - Automatically call `loadPool` and `updateAccounts` internally
@@ -16,6 +17,7 @@ The Darklake SDK provides two types of functions for each operation:
 - **Use Case**: When you want a complete, ready-to-execute transaction
 
 ### Instruction Functions (ending with 'ix')
+
 - **Purpose**: Return `TransactionInstruction` objects for manual transaction building
 - **Features**:
   - More granular control over transaction construction
@@ -31,11 +33,13 @@ The Darklake SDK provides two types of functions for each operation:
 ### Core Operations
 
 #### Order Flow
+
 - **`settle:ix`** / **`settle:tx`** - Settle an existing order
-- **`cancel:ix`** / **`cancel:tx`** - Cancel an existing order  
+- **`cancel:ix`** / **`cancel:tx`** - Cancel an existing order
 - **`slash:ix`** / **`slash:tx`** - Slash an expired order
 
 #### Liquidity Management
+
 - **`addLiquidity:ix`** / **`addLiquidity:tx`** - Add liquidity to a pool
 - **`removeLiquidity:ix`** / **`removeLiquidity:tx`** - Remove liquidity from a pool
 - **`initializePool:ix`** / **`initializePool:tx`** - Initialize a new pool
@@ -43,21 +47,25 @@ The Darklake SDK provides two types of functions for each operation:
 ### Operations with SOL
 
 #### SOL Order Flow
+
 - **`settleFromSol:ix`** / **`settleFromSol:tx`** - Settle an order from SOL
 - **`settleToSol:ix`** / **`settleToSol:tx`** - Settle an order to SOL
 
 #### SOL Liquidity Management
+
 - **`addLiquiditySol:ix`** / **`addLiquiditySol:tx`** - Add liquidity with SOL
 - **`removeLiquiditySol:ix`** / **`removeLiquiditySol:tx`** - Remove liquidity to SOL
 - **`initializePoolSol:ix`** / **`initializePoolSol:tx`** - Initialize pool with SOL
 
 ### Utility Operations
+
 - **`quote`** - Get a price quote for a swap (no mode required)
 - **`all:ix`** / **`all:tx`** - Run all operations sequentially with 10s pauses
 
 ## Usage Examples
 
 ### Basic Usage
+
 ```bash
 # Generate instruction only (no transaction execution)
 npm run settle:ix
@@ -74,6 +82,7 @@ npm run quote
 ```
 
 ### SOL Operations
+
 ```bash
 # SOL-specific operations
 npm run settleFromSol:tx
@@ -82,6 +91,7 @@ npm run removeLiquiditySol:tx
 ```
 
 ### Batch Operations
+
 ```bash
 # Run all operations in instruction mode
 npm run all:ix
@@ -93,17 +103,20 @@ npm run all:tx
 ## Setup
 
 1. Install dependencies:
+
 ```bash
 cd examples
 npm install
 ```
 
 2. Build the examples:
+
 ```bash
 npm run build
 ```
 
 3. Run any script:
+
 ```bash
 npm run <script-name>
 ```
@@ -121,6 +134,7 @@ You can modify these values in the example files as needed.
 ## Transaction Flow
 
 ### For Transaction Functions (tx mode):
+
 1. Initialize SDK with RPC endpoint and configuration
 2. Load the trading pool for the specified token pair (automatic)
 3. Get a quote for the desired operation
@@ -128,6 +142,7 @@ You can modify these values in the example files as needed.
 5. Return transaction details ready for signing and sending
 
 ### For Instruction Functions (ix mode):
+
 1. Initialize SDK with RPC endpoint and configuration
 2. **Manually** load the pool data: `await sdk.loadPool(tokenMintX, tokenMintY)`
 3. **Manually** update accounts: `await sdk.updateAccounts()`
@@ -140,7 +155,9 @@ Note. **Before any subsequent ...ix() call if pool does not change**: `await sdk
 ## Script Categories
 
 ### Order Management Scripts
+
 These scripts handle swap order lifecycle:
+
 - `settle:ix/tx` - Complete a swap order
 - `cancel:ix/tx` - Cancel a pending order
 - `slash:ix/tx` - Slash an expired order
@@ -148,7 +165,9 @@ These scripts handle swap order lifecycle:
 - `settleToSol:ix/tx` - Settle order to SOL
 
 ### Liquidity Management Scripts
+
 These scripts handle pool liquidity:
+
 - `addLiquidity:ix/tx` - Add liquidity to existing pool
 - `removeLiquidity:ix/tx` - Remove liquidity from pool
 - `initializePool:ix/tx` - Create new liquidity pool
@@ -157,6 +176,7 @@ These scripts handle pool liquidity:
 - `initializePoolSol:ix/tx` - Initialize pool with SOL
 
 ### Utility Scripts
+
 - `quote` - Get price quotes without executing transactions
 - `all:ix/tx` - Run all operations in sequence for testing
 

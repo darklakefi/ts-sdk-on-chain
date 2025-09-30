@@ -118,7 +118,7 @@ export interface AccountData {
 
 // Swap mode enum
 export enum SwapMode {
-  ExactIn = 'ExactIn'
+  ExactIn = 'ExactIn',
 }
 
 // Parameter interfaces for instruction functions
@@ -393,4 +393,4 @@ export interface ProofResult {
   proofB: Uint8Array;
   proofC: Uint8Array;
   publicSignals: Uint8Array[];
-} 
+}
