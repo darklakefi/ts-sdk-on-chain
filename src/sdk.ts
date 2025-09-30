@@ -26,7 +26,7 @@ export class DarklakeSDK {
       this.isDevnet = isDevnet;
 
       // label
-      const sdkLabelPrefix = "jcv0.3.0";
+      const sdkLabelPrefix = "jcv0.1.1";
 
       // sanity check for in-case we exceed prefix length
       if (sdkLabelPrefix.length > 10) {
@@ -428,8 +428,8 @@ export class DarklakeSDK {
           amountY = temp;
         }
 
-        const tokenXAccount = await this.connection.getAccountInfo(tokenX);
-        const tokenYAccount = await this.connection.getAccountInfo(tokenY);
+        const tokenXAccount = await this.connection.getAccountInfo(tokenMintX);
+        const tokenYAccount = await this.connection.getAccountInfo(tokenMintY);
 
         if (!tokenXAccount) {
           throw new Error('Token X account not found');
@@ -442,9 +442,9 @@ export class DarklakeSDK {
           user: user,
           amountX,
           amountY,
-          tokenX,
+          tokenX: tokenMintX,
           tokenXProgram: tokenXAccount.owner,
-          tokenY,
+          tokenY: tokenMintY,
           tokenYProgram: tokenYAccount.owner,
         }
 

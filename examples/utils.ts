@@ -1,6 +1,6 @@
 import { DarklakeSDK, Order } from "@darklake/ts-sdk-on-chain";
 import { AccountInfo, AddressLookupTableAccount, Connection, PublicKey, Keypair, Transaction, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { createMint, createAssociatedTokenAccount, mintTo, getAssociatedTokenAddress, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { createMint, createAssociatedTokenAccount, mintTo, getAssociatedTokenAddress, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, NATIVE_MINT, createSyncNativeInstruction, createCloseAccountInstruction } from "@solana/spl-token";
 
 export async function getAddressLookupTable(
     tableAddress: PublicKey,
@@ -127,6 +127,122 @@ export async function getAddressLookupTable(
 
     } catch (error) {
       console.error('❌ Failed to create tokens:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Creates a WSOL Associated Token Account and wraps the specified amount of SOL to WSOL
+   * @param connection - Solana connection
+   * @param payer - Keypair to use for paying transaction fees and as the owner
+   * @param amount - Amount of SOL to wrap (in lamports)
+   * @returns Object containing the WSOL ATA address and the instructions for creation and wrapping
+   */
+  export async function createWsolAccountAndWrap(
+    payer: Keypair,
+    amount: number
+  ): Promise<{ wsolAccount: PublicKey; createWsolAtaIx: any; transferSolIx: any; syncNativeIx: any }> {
+    try {
+      console.log(`🔄 Creating WSOL ATA and wrapping ${amount} lamports of SOL to WSOL...`);
+
+      // Get the WSOL Associated Token Account address
+      const { wsolAccount, createWsolAtaIx } = await createWsolAccountIx(payer);
+
+      // Transfer SOL to the WSOL ATA (this creates the native SOL balance in the ATA)
+      const transferSolIx = SystemProgram.transfer({
+        fromPubkey: payer.publicKey,
+        toPubkey: wsolAccount,
+        lamports: amount,
+      });
+
+      // Sync the native SOL balance to the token account (this wraps SOL to WSOL)
+      const syncNativeIx = createSyncNativeInstruction(wsolAccount);
+
+      console.log(`✅ WSOL ATA created at: ${wsolAccount.toString()}`);
+      console.log(`✅ Instructions prepared for wrapping ${amount} lamports of SOL to WSOL`);
+
+      return {
+        wsolAccount,
+        createWsolAtaIx,
+        transferSolIx,
+        syncNativeIx
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to create WSOL account and wrap SOL:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Creates a WSOL Associated Token Account for remove liquidity operations
+   * @param payer - Keypair to use for paying transaction fees and as the owner
+   * @returns Object containing the WSOL ATA address and the instruction for creation
+   */
+  export async function createWsolAccountIx(
+    payer: Keypair
+  ): Promise<{ wsolAccount: PublicKey; createWsolAtaIx: any }> {
+    try {
+      console.log(`🔄 Creating WSOL ATA for remove liquidity operation...`);
+
+      // Get the WSOL Associated Token Account address
+      const wsolAccount = await getAssociatedTokenAddress(NATIVE_MINT, payer.publicKey);
+      
+      // Create the WSOL ATA instruction (idempotent - won't fail if it already exists)
+      const createWsolAtaIx = await createAssociatedTokenAccountIdempotentInstruction(
+        payer.publicKey,
+        wsolAccount,
+        payer.publicKey,
+        NATIVE_MINT,
+      );
+
+      console.log(`✅ WSOL ATA created at: ${wsolAccount.toString()}`);
+
+      return {
+        wsolAccount,
+        createWsolAtaIx
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to create WSOL account for remove liquidity:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Unwraps WSOL and closes the ATA account after remove liquidity operations
+   * @param payer - Keypair to use for paying transaction fees and as the owner
+   * @returns Object containing the instructions for unwrapping and closing
+   */
+  export async function unwrapWsolAndCloseAccountIx(
+    payer: Keypair
+  ): Promise<{ syncNativeIx: any; closeAccountIx: any }> {
+    try {
+      console.log(`🔄 Unwrapping WSOL and closing ATA account...`);
+
+      // Get the WSOL Associated Token Account address
+      const wsolAccount = await getAssociatedTokenAddress(NATIVE_MINT, payer.publicKey);
+
+      // Sync the native SOL balance to the token account (this unwraps WSOL to SOL)
+      const syncNativeIx = createSyncNativeInstruction(wsolAccount);
+
+      // Close the WSOL token account
+      const closeAccountIx = createCloseAccountInstruction(
+        wsolAccount, // account
+        payer.publicKey, // destination
+        payer.publicKey, // owner
+        [] // multisig signers
+      );
+
+      console.log(`✅ Instructions prepared for unwrapping WSOL and closing ATA account`);
+
+      return {
+        syncNativeIx,
+        closeAccountIx
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to unwrap WSOL and close account:', error);
       throw error;
     }
   }
