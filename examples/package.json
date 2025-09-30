@@ -18,7 +18,17 @@
     "initializePool:tx": "ts-node main.ts initializePool tx",
     "all:ix": "ts-node main.ts all ix",
     "all:tx": "ts-node main.ts all tx",
-    "quote": "ts-node main.ts quote"
+    "quote": "ts-node main.ts quote",
+    "settleFromSol:ix": "ts-node main.ts settleFromSol ix",
+    "settleFromSol:tx": "ts-node main.ts settleFromSol tx",
+    "settleToSol:ix": "ts-node main.ts settleToSol ix",
+    "settleToSol:tx": "ts-node main.ts settleToSol tx",
+    "addLiquiditySol:ix": "ts-node main.ts addLiquiditySol ix",
+    "addLiquiditySol:tx": "ts-node main.ts addLiquiditySol tx",
+    "removeLiquiditySol:ix": "ts-node main.ts removeLiquiditySol ix",
+    "removeLiquiditySol:tx": "ts-node main.ts removeLiquiditySol tx",
+    "initializePoolSol:ix": "ts-node main.ts initializePoolSol ix",
+    "initializePoolSol:tx": "ts-node main.ts initializePoolSol tx"
   },
   "dependencies": {
     "bn.js": "^5.2.1",

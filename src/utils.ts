@@ -15,7 +15,8 @@ import {
   ExtensionType,
   Mint,
   TransferFeeConfig,
-  TransferFeeConfigLayout
+  TransferFeeConfigLayout,
+  createAssociatedTokenAccountIdempotentInstruction
 } from '@solana/spl-token';
 import BN from 'bn.js';
 import { DEVNET_LOOKUP, MAINNET_LOOKUP } from './constants';
@@ -74,8 +75,8 @@ export async function getWrapSolToWsolInstructions(
   const instructions: TransactionInstruction[] = [];
   
   // 1. Create associated token account for WSOL (idempotent)
-  const wsolAta = await getAssociatedTokenAddress(payer, NATIVE_MINT);
-  const createAtaIx = createAssociatedTokenAccountInstruction(
+  const wsolAta = await getAssociatedTokenAddress(NATIVE_MINT, payer);
+  const createAtaIx = createAssociatedTokenAccountIdempotentInstruction(
     payer, // payer
     wsolAta, // ata
     payer, // owner
@@ -105,7 +106,7 @@ export async function getWrapSolToWsolInstructions(
 export async function getCloseWsolInstructions(payer: PublicKey): Promise<TransactionInstruction[]> {
   const instructions: TransactionInstruction[] = [];
   
-  const wsolAta = await getAssociatedTokenAddress(payer, NATIVE_MINT);
+  const wsolAta = await getAssociatedTokenAddress(NATIVE_MINT, payer);
   
   // 1. Sync the ATA to ensure all lamports are accounted for
   const syncNativeIx = createSyncNativeInstruction(wsolAta);

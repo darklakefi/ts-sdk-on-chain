@@ -1,9 +1,9 @@
-import { DarklakeSDK, PublicKey, Commitment, SwapMode, SwapParamsIx, DEVNET_LOOKUP, BN, InitializePoolParamsIx, RemoveLiquidityParamsIx, AddLiquidityParamsIx } from '@darklake/ts-sdk-on-chain';
+import { DarklakeSDK, PublicKey, Commitment, SwapMode, SwapParamsIx, DEVNET_LOOKUP, BN, InitializePoolParamsIx, RemoveLiquidityParamsIx, AddLiquidityParamsIx, SOL_MINT } from '@darklake/ts-sdk-on-chain';
 import { Keypair, Connection, ComputeBudgetProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import { createNewTokens, getAddressLookupTable, retryGetOrderAccount } from './utils';
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { createNewTokens, getAddressLookupTable, retryGetOrderAccount, createWsolAccountAndWrap, createWsolAccountIx, unwrapWsolAndCloseAccountIx } from './utils';
+import { TOKEN_PROGRAM_ID, NATIVE_MINT } from '@solana/spl-token';
 
 // Helper function to convert BN fields to readable numbers
 function convertBNToReadable(obj: any): any {
@@ -73,6 +73,7 @@ function parseArgs(): { operation: string; mode: string } {
   if (args.length < 2) {
     console.error('❌ Usage: npm start <operation> <mode>');
     console.error('   Operations: settle, cancel, slash, addLiquidity, removeLiquidity, initializePool, all, quote');
+    console.error('   SOL Operations: settleFromSol, settleToSol, addLiquiditySol, removeLiquiditySol, initializePoolSol');
     console.error('   Modes: ix (instruction only), tx (full transaction)');
     console.error('   Special: all mode runs all operations sequentially with 10s pauses');
     process.exit(1);
@@ -81,7 +82,7 @@ function parseArgs(): { operation: string; mode: string } {
   const operation = args[0];
   const mode = args[1];
 
-  const validOperations = ['settle', 'cancel', 'slash', 'addLiquidity', 'removeLiquidity', 'initializePool', 'all', 'quote'];
+  const validOperations = ['settle', 'cancel', 'slash', 'addLiquidity', 'removeLiquidity', 'initializePool', 'all', 'quote', 'settleFromSol', 'settleToSol', 'addLiquiditySol', 'removeLiquiditySol', 'initializePoolSol'];
   const validModes = ['ix', 'tx'];
 
   if (!validOperations.includes(operation)) {
@@ -759,13 +760,523 @@ async function runInitializePool(sdk: DarklakeSDK, connection: Connection, keypa
   }
 }
 
+// Settle from SOL operation
+async function runSettleFromSol(
+  sdk: DarklakeSDK,
+  connection: Connection,
+  keypair: Keypair,
+  mode: string
+) {
+  console.log('\n🔄 Running settle from SOL operation...');
+  
+  if (mode === 'ix') {
+    // Dex does not support SOL as the source mint directly, so we need to use NATIVE_MINT (WSOL)
+    await sdk.loadPool(NATIVE_MINT, TOKEN_MINT_X);
+    await sdk.updateAccounts();
+
+    const swapParamsIx: SwapParamsIx = {
+      sourceMint: NATIVE_MINT, // Use NATIVE_MINT for WSOL in ix mode
+      destinationMint: TOKEN_MINT_X,
+      tokenTransferAuthority: keypair.publicKey,
+      inAmount: new BN(1000),
+      swapMode: SwapMode.ExactIn,
+      minOut: new BN(10),
+      salt: new Uint8Array(32),
+    }
+    const swapResult = await sdk.swapIx(swapParamsIx);
+
+    // Create WSOL ATA and wrap SOL to WSOL
+    const { createWsolAtaIx, transferSolIx, syncNativeIx } = await createWsolAccountAndWrap(
+      keypair,
+      swapParamsIx.inAmount.toNumber()
+    );
+
+    const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 300000 });
+    const allSwapInstructions = [
+      computeBudgetIx,
+      createWsolAtaIx,
+      transferSolIx,
+      syncNativeIx,
+      swapResult,
+    ];
+    
+    const addressLookupTableAccount = await getAddressLookupTable(DEVNET_LOOKUP, connection);
+    const recentBlockhash = await connection.getLatestBlockhash();
+    const swapMessage = new TransactionMessage(
+      {
+        recentBlockhash: recentBlockhash.blockhash,
+        instructions: allSwapInstructions,
+        payerKey: keypair.publicKey,
+      }
+    ).compileToV0Message([addressLookupTableAccount]);
+    const swapVersionedTransaction = new VersionedTransaction(swapMessage);
+    swapVersionedTransaction.sign([keypair]);
+    const swapSignature = await connection.sendTransaction(swapVersionedTransaction, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    console.log(`✅ Swap transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`);
+
+    await sdk.updateAccounts();
+
+    const order = await retryGetOrderAccount(sdk, keypair.publicKey);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+
+    // Generate settle instruction only
+    const settleInstruction = await sdk.finalizeIx({
+      settleSigner: keypair.publicKey,
+      orderOwner: keypair.publicKey,
+      unwrapWsol: false,
+      minOut: swapParamsIx.minOut,
+      salt: swapParamsIx.salt,
+      output: new BN(order.dOut.toString()),
+      commitment: order.cMin,
+      deadline: new BN(order.deadline.toString()),
+      currentSlot: new BN(await connection.getSlot('processed')),
+    });
+
+    const settleComputeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 300000 });
+
+    const allSettleInstructions = [
+      settleComputeBudgetIx,
+      settleInstruction,
+    ];
+
+    const settleMessage = new TransactionMessage(
+      {
+        recentBlockhash: (await connection.getLatestBlockhash()).blockhash,
+        instructions: allSettleInstructions,
+        payerKey: keypair.publicKey,
+      }
+    ).compileToV0Message([addressLookupTableAccount]);
+    const settleVersionedTransaction = new VersionedTransaction(settleMessage);
+    settleVersionedTransaction.sign([keypair]);
+    const settleSignature = await connection.sendTransaction(settleVersionedTransaction, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    console.log(`✅ Settle transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${settleSignature}?cluster=devnet`);
+
+  } else if (mode === 'tx') {
+    console.log('Swap from SOL -> settle using the tx method...');
+
+    const minOut = new BN(10);
+    const inputAmount = new BN(1000);
+    const swapResult = await sdk.swapTx(SOL_MINT, TOKEN_MINT_X, inputAmount, minOut, keypair.publicKey);
+
+    const tx = swapResult.tx;
+    tx.sign([keypair]);
+    const swapSignature = await connection.sendTransaction(tx, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    console.log(`✅ Swap transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`);
+    
+    console.log('Generating settle transaction...');
+    // unwrapping can also be done manually using instrunctions
+    const finalizeResult = await sdk.finalizeTx(
+      swapResult.orderKey,
+      true, // unwrapWsol - unwrap WSOL back to SOL
+      minOut,
+      swapResult.salt,
+      keypair.publicKey
+    );
+    console.log('✅ Settle transaction generated successfully!');
+
+    finalizeResult.tx.sign([keypair]);
+
+    const finalizeSignature = await connection.sendTransaction(finalizeResult.tx, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    
+    console.log(`✅ Finalize transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${finalizeSignature}?cluster=devnet`);
+  } else {
+    throw new Error('Mode not implemented');
+  }
+}
+
+// Settle to SOL operation
+async function runSettleToSol(
+  sdk: DarklakeSDK,
+  connection: Connection,
+  keypair: Keypair,
+  mode: string
+) {
+  console.log('\n🔄 Running settle to SOL operation...');
+  
+  if (mode === 'ix') {
+    await sdk.loadPool(TOKEN_MINT_X, NATIVE_MINT);
+    await sdk.updateAccounts();
+
+    const swapParamsIx: SwapParamsIx = {
+      sourceMint: TOKEN_MINT_X,
+      destinationMint: NATIVE_MINT, // Use NATIVE_MINT for WSOL in ix mode
+      tokenTransferAuthority: keypair.publicKey,
+      inAmount: new BN(1000),
+      swapMode: SwapMode.ExactIn,
+      minOut: new BN(10),
+      salt: new Uint8Array(32),
+    }
+    const swapResult = await sdk.swapIx(swapParamsIx);
+
+    const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 300000 });
+    const allSwapInstructions = [
+      computeBudgetIx,
+      swapResult,
+    ];
+    
+    const addressLookupTableAccount = await getAddressLookupTable(DEVNET_LOOKUP, connection);
+    const recentBlockhash = await connection.getLatestBlockhash();
+    const swapMessage = new TransactionMessage(
+      {
+        recentBlockhash: recentBlockhash.blockhash,
+        instructions: allSwapInstructions,
+        payerKey: keypair.publicKey,
+      }
+    ).compileToV0Message([addressLookupTableAccount]);
+    const swapVersionedTransaction = new VersionedTransaction(swapMessage);
+    swapVersionedTransaction.sign([keypair]);
+    const swapSignature = await connection.sendTransaction(swapVersionedTransaction, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    console.log(`✅ Swap transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`);
+
+    await sdk.updateAccounts();
+
+    const order = await retryGetOrderAccount(sdk, keypair.publicKey);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+
+    // Generate settle instruction only
+    const settleInstruction = await sdk.finalizeIx({
+      settleSigner: keypair.publicKey,
+      orderOwner: keypair.publicKey,
+      unwrapWsol: true, // Unwrap WSOL back to SOL
+      minOut: swapParamsIx.minOut,
+      salt: swapParamsIx.salt,
+      output: new BN(order.dOut.toString()),
+      commitment: order.cMin,
+      deadline: new BN(order.deadline.toString()),
+      currentSlot: new BN(await connection.getSlot('processed')),
+    });
+
+    const settleComputeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 300000 });
+
+    const allSettleInstructions = [
+      settleComputeBudgetIx,
+      settleInstruction,
+    ];
+
+    const settleMessage = new TransactionMessage(
+      {
+        recentBlockhash: (await connection.getLatestBlockhash()).blockhash,
+        instructions: allSettleInstructions,
+        payerKey: keypair.publicKey,
+      }
+    ).compileToV0Message([addressLookupTableAccount]);
+    const settleVersionedTransaction = new VersionedTransaction(settleMessage);
+    settleVersionedTransaction.sign([keypair]);
+    const settleSignature = await connection.sendTransaction(settleVersionedTransaction, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    console.log(`✅ Settle transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${settleSignature}?cluster=devnet`);
+
+  } else if (mode === 'tx') {
+    console.log('Swap to SOL -> settle using the tx method...');
+
+    const minOut = new BN(10);
+    const inputAmount = new BN(1000);
+    const swapResult = await sdk.swapTx(TOKEN_MINT_X, SOL_MINT, inputAmount, minOut, keypair.publicKey);
+
+    const tx = swapResult.tx;
+    tx.sign([keypair]);
+    const swapSignature = await connection.sendTransaction(tx, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    console.log(`✅ Swap transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`);
+    
+    console.log('Generating settle transaction...');
+    const finalizeResult = await sdk.finalizeTx(
+      swapResult.orderKey,
+      true, // unwrapWsol - unwrap WSOL back to SOL
+      minOut,
+      swapResult.salt,
+      keypair.publicKey
+    );
+    console.log('✅ Settle transaction generated successfully!');
+
+    finalizeResult.tx.sign([keypair]);
+
+    const finalizeSignature = await connection.sendTransaction(finalizeResult.tx, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    
+    console.log(`✅ Finalize transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${finalizeSignature}?cluster=devnet`);
+  } else {
+    throw new Error('Mode not implemented');
+  }
+}
+
+// Add liquidity with SOL operation
+async function runAddLiquiditySol(sdk: DarklakeSDK, connection: Connection, keypair: Keypair, mode: string) {
+  console.log('\n🔄 Running add liquidity with SOL operation...');
+  
+  if (mode === 'ix') {
+    console.log('\n📊 Loading pool...');
+    const [, orderedTokenMintX, orderedTokenMintY] = await sdk.loadPool(NATIVE_MINT, TOKEN_MINT_X);
+    await sdk.updateAccounts();
+
+    const solAmount = new BN(100);
+    const tokenXAmount = new BN(200);
+
+    // need to match the x/y to the returned orderedTokenMintX/Y
+    const maxAmountX = TOKEN_MINT_X.equals(orderedTokenMintX) ? tokenXAmount : solAmount; // Token X amount
+    const maxAmountY = NATIVE_MINT.equals(orderedTokenMintY) ? solAmount : tokenXAmount;  // SOL amount
+    const amountLp = new BN(10);
+
+    const addLiquidityParamsIx: AddLiquidityParamsIx = {
+      user: keypair.publicKey,
+      amountLp,
+      maxAmountX,
+      maxAmountY,
+    };
+
+    const { createWsolAtaIx, transferSolIx, syncNativeIx } = await createWsolAccountAndWrap(
+      keypair,
+      solAmount.toNumber()
+    );
+
+    const addLiquidityInstruction = await sdk.addLiquidityIx(addLiquidityParamsIx);
+
+    const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 500000 });
+    const allInstructions = [
+      computeBudgetIx,
+      createWsolAtaIx,
+      transferSolIx,
+      syncNativeIx,
+      addLiquidityInstruction,
+    ];
+
+    const addressLookupTableAccount = await getAddressLookupTable(DEVNET_LOOKUP, connection);
+    const recentBlockhash = await connection.getLatestBlockhash();
+    const addLiquidityMessage = new TransactionMessage(
+      {
+        recentBlockhash: recentBlockhash.blockhash,
+        instructions: allInstructions,
+        payerKey: keypair.publicKey,
+      }
+    ).compileToV0Message([addressLookupTableAccount]);
+
+    const addLiquidityVersionedTransaction = new VersionedTransaction(addLiquidityMessage);
+    addLiquidityVersionedTransaction.sign([keypair]);
+
+    const addLiquiditySignature = await connection.sendTransaction(addLiquidityVersionedTransaction, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+
+    console.log(`✅ Add liquidity transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${addLiquiditySignature}?cluster=devnet`);
+  } else if (mode === 'tx') {
+    console.log('Add liquidity with SOL using the tx method...');
+
+    const maxSolAmount = new BN(100); // SOL amount
+    const maxTokenXAmount = new BN(200); // Token X amount
+    const amountLp = new BN(10);
+    const addLiquidityResult = await sdk.addLiquidityTx(SOL_MINT, TOKEN_MINT_X, maxSolAmount, maxTokenXAmount, amountLp, keypair.publicKey);
+
+    const tx = addLiquidityResult.tx;
+    tx.sign([keypair]);
+    const addLiquiditySignature = await connection.sendTransaction(tx, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    console.log(`✅ Add liquidity transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${addLiquiditySignature}?cluster=devnet`);
+  } else {
+    throw new Error('Mode not implemented');
+  }
+}
+
+// Remove liquidity with SOL operation
+async function runRemoveLiquiditySol(sdk: DarklakeSDK, connection: Connection, keypair: Keypair, mode: string) {
+  console.log('\n🔄 Running remove liquidity with SOL operation...');
+  
+  if (mode === 'ix') {
+    console.log('\n📊 Loading pool...');
+    const [, orderedTokenMintX, orderedTokenMintY] = await sdk.loadPool(NATIVE_MINT, TOKEN_MINT_X);
+    await sdk.updateAccounts();
+
+    const minSolAmount = new BN(100);
+    const minTokenXAmount = new BN(200);
+
+    const minAmountX = NATIVE_MINT.equals(orderedTokenMintX) ? minSolAmount : minTokenXAmount; // SOL amount
+    const minAmountY = TOKEN_MINT_X.equals(orderedTokenMintY) ? minTokenXAmount : minSolAmount; // Token X amount
+    const amountLp = new BN(1000);
+
+    const removeLiquidityParamsIx: RemoveLiquidityParamsIx = {
+      user: keypair.publicKey,
+      amountLp,
+      minAmountX,
+      minAmountY,
+    };
+    
+    // Create WSOL ATA account before remove liquidity
+    const { createWsolAtaIx } = await createWsolAccountIx(keypair);
+    // Unwrap WSOL and close account after remove liquidity
+    const { syncNativeIx, closeAccountIx } = await unwrapWsolAndCloseAccountIx(keypair);
+    const removeLiquidityInstruction = await sdk.removeLiquidityIx(removeLiquidityParamsIx);
+
+    const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 500000 });
+    const allInstructions = [
+      computeBudgetIx,
+      createWsolAtaIx,
+      removeLiquidityInstruction,
+      syncNativeIx,
+      closeAccountIx,
+    ];
+
+    const addressLookupTableAccount = await getAddressLookupTable(DEVNET_LOOKUP, connection);
+    const recentBlockhash = await connection.getLatestBlockhash();
+    const removeLiquidityMessage = new TransactionMessage(
+      {
+        recentBlockhash: recentBlockhash.blockhash,
+        instructions: allInstructions,
+        payerKey: keypair.publicKey,
+      }
+    ).compileToV0Message([addressLookupTableAccount]);
+
+    const removeLiquidityVersionedTransaction = new VersionedTransaction(removeLiquidityMessage);
+    removeLiquidityVersionedTransaction.sign([keypair]);
+
+    const removeLiquiditySignature = await connection.sendTransaction(removeLiquidityVersionedTransaction, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+
+    console.log(`✅ Remove liquidity transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${removeLiquiditySignature}?cluster=devnet`);
+  } else if (mode === 'tx') {
+    console.log('Remove liquidity with SOL using the tx method...');
+
+    const minSolAmountX = new BN(10); // SOL amount
+    const minTokenXAmount = new BN(20); // Token Y amount
+    const amountLp = new BN(1000);
+    const removeLiquidityResult = await sdk.removeLiquidityTx(SOL_MINT, TOKEN_MINT_X, minSolAmountX, minTokenXAmount, amountLp, keypair.publicKey);
+
+    const tx = removeLiquidityResult.tx;
+    tx.sign([keypair]);
+    const removeLiquiditySignature = await connection.sendTransaction(tx, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    console.log(`✅ Remove liquidity transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${removeLiquiditySignature}?cluster=devnet`);
+  } else {
+    throw new Error('Mode not implemented');
+  }
+}
+
+// Initialize pool with SOL operation
+async function runInitializePoolSol(sdk: DarklakeSDK, connection: Connection, keypair: Keypair, mode: string) {
+  console.log('\n🔄 Running initialize pool with SOL operation...');
+  console.log('⚠️  Note: Initialize pool functionality is not fully implemented in the current SDK');
+  
+  const { tokenMintX: tokenMintX_, tokenMintY: _ } = await createNewTokens(connection, keypair, 1000000);
+
+  const solAmount = new BN(10000); // SOL amount
+  const tokenAmount = new BN(20000); // Token X amount
+
+  if (mode === 'ix') {
+    const [tokenMintX, tokenMintY] = sdk.sortTokens(NATIVE_MINT, tokenMintX_);
+
+    const initializePoolParamsIx: InitializePoolParamsIx = {
+      user: keypair.publicKey,
+      amountX: tokenMintX.equals(NATIVE_MINT) ? solAmount : tokenAmount,
+      amountY: tokenMintX.equals(NATIVE_MINT) ? tokenAmount : solAmount,
+      tokenX: tokenMintX,
+      tokenXProgram: TOKEN_PROGRAM_ID,
+      tokenY: tokenMintY,
+      tokenYProgram: TOKEN_PROGRAM_ID,
+    }
+
+    const { createWsolAtaIx, transferSolIx, syncNativeIx } = await createWsolAccountAndWrap(
+      keypair,
+      solAmount.toNumber()
+    );
+
+    const initializePoolInstruction = await sdk.initializePoolIx(initializePoolParamsIx);
+
+    const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 500000 });
+    const allInstructions = [
+      computeBudgetIx,
+      createWsolAtaIx,
+      transferSolIx,
+      syncNativeIx,
+      initializePoolInstruction,
+    ];
+    const addressLookupTableAccount = await getAddressLookupTable(DEVNET_LOOKUP, connection);
+    const recentBlockhash = await connection.getLatestBlockhash();
+    const initializePoolMessage = new TransactionMessage(
+      {
+        recentBlockhash: recentBlockhash.blockhash,
+        instructions: allInstructions,
+        payerKey: keypair.publicKey,
+      }
+    ).compileToV0Message([addressLookupTableAccount]);
+
+    const initializePoolVersionedTransaction = new VersionedTransaction(initializePoolMessage);
+    initializePoolVersionedTransaction.sign([keypair]);
+
+    const initializePoolSignature = await connection.sendTransaction(initializePoolVersionedTransaction, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+
+    console.log(`✅ Initialize pool transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${initializePoolSignature}?cluster=devnet`);
+
+  } else if (mode === 'tx') {
+    console.log('Initialize pool with SOL using the tx method...');
+
+    const initializePoolResult = await sdk.initializePoolTx(SOL_MINT, tokenMintX_, solAmount, tokenAmount, keypair.publicKey);
+
+    const tx = initializePoolResult.tx;
+    tx.sign([keypair]);
+    const initializePoolSignature = await connection.sendTransaction(tx, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed'
+    });
+    console.log(`✅ Initialize pool transaction sent successfully!`);
+    console.log(`🔗 View on Solscan: https://solscan.io/tx/${initializePoolSignature}?cluster=devnet`);
+  } else {
+    throw new Error('Mode not implemented');
+  }
+}
+
 type OperationFunction = (sdk: DarklakeSDK, connection: Connection, keypair: Keypair, mode: string) => Promise<void>;
 type ShortOperationFunction = (sdk: DarklakeSDK) => Promise<void>;
 
 // All operation - runs all operations sequentially with 10s pauses
 async function runAll(sdk: DarklakeSDK, connection: Connection, keypair: Keypair, mode: string) {
   console.log('\n🎬 Starting ALL mode - running all operations sequentially with 10s pauses...');
-  console.log('⚠️  This will take approximately 1-2 minutes to complete all operations');
+  console.log('⚠️  This will take approximately 2-3 minutes to complete all operations');
   
   const operations: { name: string, fn: OperationFunction | ShortOperationFunction }[] = [
     { name: 'Quote', fn: runQuote },
@@ -774,7 +1285,12 @@ async function runAll(sdk: DarklakeSDK, connection: Connection, keypair: Keypair
     { name: 'Settle', fn: runSettle },
     { name: 'Cancel', fn: runCancel },
     { name: 'Slash', fn: runSlash },
-    { name: 'Remove Liquidity', fn: runRemoveLiquidity }
+    { name: 'Remove Liquidity', fn: runRemoveLiquidity },
+    { name: 'Settle From SOL', fn: runSettleFromSol },
+    { name: 'Settle To SOL', fn: runSettleToSol },
+    { name: 'Add Liquidity SOL', fn: runAddLiquiditySol },
+    { name: 'Remove Liquidity SOL', fn: runRemoveLiquiditySol },
+    { name: 'Initialize Pool SOL', fn: runInitializePoolSol },
   ];
 
   for (let i = 0; i < operations.length; i++) {
@@ -846,6 +1362,21 @@ async function main() {
         break;
       case 'initializePool':
         await runInitializePool(sdk, connection, userKeypair, mode);
+        break;
+      case 'settleFromSol':
+        await runSettleFromSol(sdk, connection, userKeypair, mode);
+        break;
+      case 'settleToSol':
+        await runSettleToSol(sdk, connection, userKeypair, mode);
+        break;
+      case 'addLiquiditySol':
+        await runAddLiquiditySol(sdk, connection, userKeypair, mode);
+        break;
+      case 'removeLiquiditySol':
+        await runRemoveLiquiditySol(sdk, connection, userKeypair, mode);
+        break;
+      case 'initializePoolSol':
+        await runInitializePoolSol(sdk, connection, userKeypair, mode);
         break;
       case 'all':
         await runAll(sdk, connection, userKeypair, mode);

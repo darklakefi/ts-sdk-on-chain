@@ -10,6 +10,7 @@ import idl from "./darklake-idl.json";
 import BN from "bn.js";
 import { generateProof } from "./zk/proof";
 import { toBigInt } from "./zk/utils";
+import { DarklakeError, createErrorContext } from "./errors";
 
 export class DarklakeSDK {
     private connection: Connection;
@@ -26,17 +27,23 @@ export class DarklakeSDK {
       this.isDevnet = isDevnet;
 
       // label
-      const sdkLabelPrefix = "jcv0.3.0";
+      const sdkLabelPrefix = "jcv0.1.1";
 
       // sanity check for in-case we exceed prefix length
       if (sdkLabelPrefix.length > 10) {
-        throw new Error("SDK label prefix is too long, must be equal or less than 10 bytes");
+        throw DarklakeError.fromValidationError(
+          "SDK label prefix is too long, must be equal or less than 10 bytes",
+          createErrorContext('constructor', { sdkLabelPrefix, length: sdkLabelPrefix.length })
+        );
       }
 
       let fullLabel: Uint8Array;
       if (label !== null) {
         if (label.length > 10) {
-          throw new Error("Label is too long, must be equal or less than 10 characters");
+          throw DarklakeError.fromValidationError(
+            "Label is too long, must be equal or less than 10 characters",
+            createErrorContext('constructor', { label, length: label.length })
+          );
         }
 
         const joinedLabel = [sdkLabelPrefix, label].join(",");
@@ -81,7 +88,13 @@ export class DarklakeSDK {
           epoch: new BN((await this.connection.getEpochInfo()).epoch),
         });
       } catch (error) {
-        throw new Error('Failed to get quote: ' + error);
+        if (error instanceof DarklakeError) {
+          return Promise.reject(error);
+        }
+        return Promise.reject(DarklakeError.fromNetworkError(
+          error as Error,
+          createErrorContext('quote', { tokenIn: tokenIn.toString(), tokenOut: tokenOut.toString(), amountIn: amountIn.toString() })
+        ));
       }
     }
 
@@ -161,7 +174,19 @@ export class DarklakeSDK {
           salt: salt
         };
       } catch (error) {
-        throw new Error('Failed to get swap tx: ' + error);
+        if (error instanceof DarklakeError) {
+          return Promise.reject(error);
+        }
+        return Promise.reject(DarklakeError.fromNetworkError(
+          error as Error,
+          createErrorContext('swapTx', { 
+            tokenIn: tokenIn.toString(), 
+            tokenOut: tokenOut.toString(), 
+            amountIn: amountIn.toString(),
+            minAmountOut: minAmountOut.toString(),
+            tokenOwner: tokenOwner.toString()
+          })
+        ));
       }
     }
 
@@ -178,7 +203,10 @@ export class DarklakeSDK {
 
         const orderAccount = await this.retryGetOrderAccount(orderKey);
         if (!orderAccount) {
-          throw new Error('Order account not found');
+          return Promise.reject(DarklakeError.fromValidationError(
+            'Order account not found',
+            createErrorContext('finalizeTx', { orderKey: orderKey.toString() })
+          ));
         }
 
         const order = this.darklakeAmm.parseOrderData(orderAccount.data);
@@ -233,7 +261,18 @@ export class DarklakeSDK {
           tx: new VersionedTransaction(message),
         };
       } catch (error) {
-        throw new Error('Failed to get finalize tx: ' + error);
+        if (error instanceof DarklakeError) {
+          return Promise.reject(error);
+        }
+        return Promise.reject(DarklakeError.fromNetworkError(
+          error as Error,
+          createErrorContext('finalizeTx', { 
+            orderKey: orderKey.toString(), 
+            unwrapWsol, 
+            minOut: minOut.toString(),
+            salt: salt.toString()
+          })
+        ));
       }
     }
 
@@ -308,7 +347,20 @@ export class DarklakeSDK {
           tx: new VersionedTransaction(message),
         };
       } catch (error) {
-        throw new Error('Failed to get add liquidity tx: ' + error);
+        if (error instanceof DarklakeError) {
+          return Promise.reject(error);
+        }
+        return Promise.reject(DarklakeError.fromNetworkError(
+          error as Error,
+          createErrorContext('addLiquidityTx', { 
+            tokenX: tokenX.toString(), 
+            tokenY: tokenY.toString(), 
+            maxAmountX: maxAmountX.toString(),
+            maxAmountY: maxAmountY.toString(),
+            amountLp: amountLp.toString(),
+            user: user.toString()
+          })
+        ));
       }
     }
 
@@ -400,7 +452,20 @@ export class DarklakeSDK {
           tx: new VersionedTransaction(message),
         };
       } catch (error) {
-        throw new Error('Failed to get add liquidity tx: ' + error);
+        if (error instanceof DarklakeError) {
+          return Promise.reject(error);
+        }
+        return Promise.reject(DarklakeError.fromNetworkError(
+          error as Error,
+          createErrorContext('removeLiquidityTx', { 
+            tokenX: tokenX.toString(), 
+            tokenY: tokenY.toString(), 
+            minAmountX: minAmountX.toString(),
+            minAmountY: minAmountY.toString(),
+            amountLp: amountLp.toString(),
+            user: user.toString()
+          })
+        ));
       }
     }
 
@@ -428,23 +493,29 @@ export class DarklakeSDK {
           amountY = temp;
         }
 
-        const tokenXAccount = await this.connection.getAccountInfo(tokenX);
-        const tokenYAccount = await this.connection.getAccountInfo(tokenY);
+        const tokenXAccount = await this.connection.getAccountInfo(tokenMintX);
+        const tokenYAccount = await this.connection.getAccountInfo(tokenMintY);
 
         if (!tokenXAccount) {
-          throw new Error('Token X account not found');
+          return Promise.reject(DarklakeError.fromValidationError(
+            'Token X account not found',
+            createErrorContext('initializePoolTx', { tokenX: tokenMintX.toString() })
+          ));
         }
         if (!tokenYAccount) {
-          throw new Error('Token Y account not found');
+          return Promise.reject(DarklakeError.fromValidationError(
+            'Token Y account not found',
+            createErrorContext('initializePoolTx', { tokenY: tokenMintY.toString() })
+          ));
         }
 
         const initializePoolParamsIx: InitializePoolParamsIx = {
           user: user,
           amountX,
           amountY,
-          tokenX,
+          tokenX: tokenMintX,
           tokenXProgram: tokenXAccount.owner,
-          tokenY,
+          tokenY: tokenMintY,
           tokenYProgram: tokenYAccount.owner,
         }
 
@@ -484,7 +555,19 @@ export class DarklakeSDK {
           tx: new VersionedTransaction(message),
         };
       } catch (error) {
-        throw new Error('Failed to get add liquidity tx: ' + error);
+        if (error instanceof DarklakeError) {
+          return Promise.reject(error);
+        }
+        return Promise.reject(DarklakeError.fromNetworkError(
+          error as Error,
+          createErrorContext('initializePoolTx', { 
+            tokenX: tokenX.toString(), 
+            tokenY: tokenY.toString(), 
+            amountX: amountX.toString(),
+            amountY: amountY.toString(),
+            user: user.toString()
+          })
+        ));
       }
     }
 
@@ -494,7 +577,10 @@ export class DarklakeSDK {
       const poolAccountData = await this.connection.getAccountInfo(poolKey);
 
       if (!poolAccountData) {
-        throw new Error('Pool not found');
+        return Promise.reject(DarklakeError.fromValidationError(
+          'Pool not found',
+          createErrorContext('loadPool', { poolKey: poolKey.toString(), tokenMintX: tokenMintX.toString(), tokenMintY: tokenMintY.toString() })
+        ));
       }
 
       const poolKeyAndAccount: KeyedAccountInfo = {
@@ -514,7 +600,10 @@ export class DarklakeSDK {
       for (const account of accountsToUpdate) {
         const accountData = await this.connection.getAccountInfo(account);
         if (!accountData) {
-          throw new Error('Account not found');
+          return Promise.reject(DarklakeError.fromValidationError(
+            `Account not found: ${account.toString()}`,
+            createErrorContext('updateAccounts', { account: account.toString() })
+          ));
         }
         accountMap.set(account, accountData as any);
       }
@@ -626,7 +715,17 @@ export class DarklakeSDK {
             data: Buffer.from(cancelAndAccountMetas.data)
           });
       } catch (error) {
-        throw new Error('Failed to get finalize ix: ' + error);
+        if (error instanceof DarklakeError) {
+          return Promise.reject(error);
+        }
+        return Promise.reject(DarklakeError.fromNetworkError(
+          error as Error,
+          createErrorContext('finalizeIx', { 
+            settleSigner: finalizeParamsIx.settleSigner.toString(),
+            orderOwner: finalizeParamsIx.orderOwner.toString(),
+            minOut: finalizeParamsIx.minOut.toString()
+          })
+        ));
       }
     }
 
@@ -704,7 +803,10 @@ export class DarklakeSDK {
             return accountData;
           }
         } catch (error) {
-          throw new Error('Failed to get order account: ' + error);
+          return Promise.reject(DarklakeError.fromNetworkError(
+            error as Error,
+            createErrorContext('retryGetOrderAccount', { orderKey: orderKey.toString(), attempt })
+          ));
         }
 
         // Don't wait after the last attempt
