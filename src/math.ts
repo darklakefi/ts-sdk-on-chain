@@ -1,6 +1,6 @@
 import BN from 'bn.js';
 import { MAX_PERCENTAGE } from './constants';
-import { ErrorCode } from './errors';
+import { ErrorCode, DarklakeError, createErrorContext } from './errors';
 import { TransferFee } from '@solana/spl-token';
 import Decimal from 'decimal.js';
 
@@ -45,49 +45,70 @@ export interface SwapResult {
 // Utility functions
 export function checkedSub(a: BN, b: BN): BN {
   if (a.lt(b)) {
-    throw new Error('Underflow');
+    throw DarklakeError.fromValidationError(
+      'Mathematical underflow in subtraction',
+      createErrorContext('checkedSub', { a: a.toString(), b: b.toString() })
+    );
   }
   return a.sub(b);
 }
 
 export function checkedMul128(a: BN, b: BN): BN {
   if (a.mul(b).gt(new BN(2).pow(new BN(128)))) {
-    throw new Error('Overflow');
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('checkedMul128', { a: a.toString(), b: b.toString() })
+    );
   }
   return a.mul(b);
 }
 
 export function checkedMul(a: BN, b: BN): BN {
   if (a.mul(b).gt(new BN(2).pow(new BN(64)))) {
-    throw new Error('Overflow');
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('checkedMul', { a: a.toString(), b: b.toString() })
+    );
   }
   return a.mul(b);
 }
 
 export function checkedDiv(a: BN, b: BN): BN {
   if (b.eq(new BN(0))) {
-    throw new Error('Cannot divide by zero');
+    throw DarklakeError.fromValidationError(
+      'Division by zero',
+      createErrorContext('checkedDiv', { a: a.toString(), b: b.toString() })
+    );
   }
   return a.div(b);
 }
 
 export function checkedAdd128(a: BN, b: BN): BN {
   if (a.add(b).gt(new BN(2).pow(new BN(128)))) {
-    throw new Error('Overflow');
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('checkedAdd128', { a: a.toString(), b: b.toString() })
+    );
   }
   return a.add(b);
 }
 
 export function checkedAdd(a: BN, b: BN): BN {
   if (a.add(b).gt(new BN(2).pow(new BN(64)))) {
-    throw new Error('Overflow');
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('checkedAdd', { a: a.toString(), b: b.toString() })
+    );
   }
   return a.add(b);
 }
 
 export function check64Bit(a: BN): BN {
   if (a.gt(new BN(2).pow(new BN(64)))) {
-    throw new Error('Overflow');
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('check64Bit', { value: a.toString() })
+    );
   }
   return a;
 }
@@ -98,15 +119,31 @@ function ceilDiv128(tokenAmount: BN, feeNumerator: BN, feeDenominator: BN): BN {
     const denominator = checkedSub(checkedAdd128(numerator, feeDenominator), new BN(1));
     return checkedDiv(denominator, feeDenominator);
   } catch (e: any) {
-    throw new Error('Internal error: Failed to ceilDiv: ' + e);
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('ceilDiv128', { 
+        tokenAmount: tokenAmount.toString(), 
+        feeNumerator: feeNumerator.toString(), 
+        feeDenominator: feeDenominator.toString(),
+        originalError: e.message
+      })
+    );
   }
 }
 
 export function floorDiv128(tokenAmount: BN, feeNumerator: BN, feeDenominator: BN): BN {
   try {
     return checkedDiv(checkedMul128(tokenAmount, feeNumerator), feeDenominator);
-  } catch (e) {
-    throw new Error('Internal error: Failed to floorDiv: ' + e);
+  } catch (e: any) {
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('floorDiv128', { 
+        tokenAmount: tokenAmount.toString(), 
+        feeNumerator: feeNumerator.toString(), 
+        feeDenominator: feeDenominator.toString(),
+        originalError: e.message
+      })
+    );
   }
 }
 // amount 128 bit, tradeFeeRate 64 bit -> convert to 128 bit

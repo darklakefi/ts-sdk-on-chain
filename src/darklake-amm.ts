@@ -48,7 +48,7 @@ import { NATIVE_MINT, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import idl from './darklake-idl.json';
 import { Darklake } from './darklake-type';
 import { checkedSub, quote, QuoteAmmConfig, QuoteOutput } from './math';
-import { ErrorCode } from './errors';
+import { ErrorCode, DarklakeError, createErrorContext } from './errors';
 import { generatePoseidonCommitment } from './zk/proof';
 import { bnToUint8Array, uint8ArrayToBigInt } from './utils';
 import { SYSTEM_PROGRAM_ID } from '@coral-xyz/anchor/dist/cjs/native/system';
@@ -229,7 +229,10 @@ export class DarklakeAmm {
   public update(accountMap: Map<PublicKey, AccountData>): void {
     const account = accountMap.get(this.key);
     if (!account) {
-      throw new Error('Darklake pool account not found');
+      throw DarklakeError.fromValidationError(
+        'Darklake pool account not found',
+        createErrorContext('update', { poolKey: this.key.toString() })
+      );
     }
 
     // Parse pool data (simplified)
@@ -237,19 +240,28 @@ export class DarklakeAmm {
     
     const ammConfigData = accountMap.get(this.pool.ammConfig);
     if (!ammConfigData) {
-      throw new Error('Amm config data not found');
+      throw DarklakeError.fromValidationError(
+        'Amm config data not found',
+        createErrorContext('update', { ammConfig: this.pool.ammConfig.toString() })
+      );
     }
 
     this.ammConfig = this.mapDataToAmmConfig(this.borshCoder.accounts.decode('AmmConfig', Buffer.from(ammConfigData.data)));
 
     const reserveXData = accountMap.get(this.pool.reserveX);
     if (!reserveXData) {
-      throw new Error('Reserve X data not found');
+      throw DarklakeError.fromValidationError(
+        'Reserve X data not found',
+        createErrorContext('update', { reserveX: this.pool.reserveX.toString() })
+      );
     }
 
     const reserveYData = accountMap.get(this.pool.reserveY);
     if (!reserveYData) {
-      throw new Error('Reserve Y data not found');
+      throw DarklakeError.fromValidationError(
+        'Reserve Y data not found',
+        createErrorContext('update', { reserveY: this.pool.reserveY.toString() })
+      );
     }
     
     this.reserveXBalance = this.parseTokenAccountBalance(reserveXData.data, reserveXData.owner);
@@ -260,12 +272,18 @@ export class DarklakeAmm {
 
     const tokenXData = accountMap.get(this.pool.tokenMintX);
     if (!tokenXData) {
-      throw new Error('Token X data not found');
+      throw DarklakeError.fromValidationError(
+        'Token X data not found',
+        createErrorContext('update', { tokenMintX: this.pool.tokenMintX.toString() })
+      );
     }
 
     const tokenYData = accountMap.get(this.pool.tokenMintY);
     if (!tokenYData) {
-      throw new Error('Token Y data not found');
+      throw DarklakeError.fromValidationError(
+        'Token Y data not found',
+        createErrorContext('update', { tokenMintY: this.pool.tokenMintY.toString() })
+      );
     }
     const tokenXProgram = tokenXData.owner;
     const tokenYProgram = tokenYData.owner;
@@ -308,7 +326,10 @@ export class DarklakeAmm {
    */
   quote(quoteParams: QuoteParams): Quote {
     if (quoteParams.swapMode !== SwapMode.ExactIn) {
-      throw new Error('Exact out not supported');
+      throw DarklakeError.fromUnsupportedOperation(
+        'Exact out swap mode',
+        createErrorContext('quote', { swapMode: quoteParams.swapMode })
+      );
     }
 
     const isSwapXToY = quoteParams.inputMint.equals(this.pool.tokenMintX);
@@ -349,7 +370,14 @@ export class DarklakeAmm {
     );
 
     if (Object.values(ErrorCode).includes(result as ErrorCode)) {
-      throw new Error('Failed to get quote: ' + result);
+      throw DarklakeError.fromMathError(
+        result as ErrorCode,
+        createErrorContext('quote', {
+          inputMint: quoteParams.inputMint.toString(),
+          amount: quoteParams.amount.toString(),
+          swapMode: quoteParams.swapMode
+        })
+      );
     }
 
     const quoteOutput = result as QuoteOutput;
@@ -368,7 +396,10 @@ export class DarklakeAmm {
     const outputAmount = checkedSub(quoteOutput.toAmount, new BN(outputTransferFee));
 
     if (outputAmount.lt(new BN(0))) {
-      throw new Error('Output amount is negative');
+      throw DarklakeError.fromValidationError(
+        'Output amount is negative',
+        createErrorContext('quote', { outputAmount: outputAmount.toString() })
+      );
     } 
 
     // Simplified quote calculation
@@ -458,11 +489,17 @@ export class DarklakeAmm {
     const output = new BN(settleParams.output);
 
     if (currentSlot.gt(deadline)) {
-      throw new Error('Order has expired');
+      throw DarklakeError.fromValidationError(
+        'Order has expired',
+        createErrorContext('canSettle', { currentSlot: currentSlot.toString(), deadline: deadline.toString() })
+      );
     }
 
     if (minOut.gt(output)) {
-      throw new Error("Can't settle this order, min_out > output");
+      throw DarklakeError.fromValidationError(
+        "Can't settle this order, min_out > output",
+        createErrorContext('canSettle', { minOut: minOut.toString(), output: output.toString() })
+      );
     }
 
     const userTokenAccountWsol = DarklakeAmm.getUserTokenAccount(settleParams.orderOwner, NATIVE_MINT, TOKEN_PROGRAM_ID);
@@ -543,11 +580,17 @@ export class DarklakeAmm {
     const output = new BN(cancelParams.output);
 
     if (currentSlot.gt(deadline)) {
-      throw new Error('Order has expired');
+      throw DarklakeError.fromValidationError(
+        'Order has expired',
+        createErrorContext('canCancel', { currentSlot: currentSlot.toString(), deadline: deadline.toString() })
+      );
     }
 
     if (minOut.lte(output)) {
-      throw new Error("Can't cancel this order, min_out <= output");
+      throw DarklakeError.fromValidationError(
+        "Can't cancel this order, min_out <= output",
+        createErrorContext('canCancel', { minOut: minOut.toString(), output: output.toString() })
+      );
     }
 
     const userTokenAccountWsol = DarklakeAmm.getUserTokenAccount(cancelParams.orderOwner, NATIVE_MINT, TOKEN_PROGRAM_ID);
@@ -620,7 +663,10 @@ export class DarklakeAmm {
     const deadline = new BN(slashParams.deadline);
 
     if (currentSlot.lte(deadline)) {
-      throw new Error('Order has not expired');
+      throw DarklakeError.fromValidationError(
+        'Order has not expired',
+        createErrorContext('canSlash', { currentSlot: currentSlot.toString(), deadline: deadline.toString() })
+      );
     }
     const poolWsolReserve = DarklakeAmm.getPoolWsolReserve(this.key);
 
@@ -857,7 +903,10 @@ export class DarklakeAmm {
    */
   getOrderPubkey(user: PublicKey): PublicKey {
     if (this.key.equals(PublicKey.default)) {
-      throw new Error('Darklake pool is not initialized');
+      throw DarklakeError.fromValidationError(
+        'Darklake pool is not initialized',
+        createErrorContext('getOrderPubkey', { poolKey: this.key.toString() })
+      );
     }
     return this.getOrder(user);
   }
@@ -907,7 +956,11 @@ export class DarklakeAmm {
         const tokenAccount = AccountLayout.decode(accountData);
         return new BN(tokenAccount.amount.toString());
       } catch (error) {
-        throw new Error(`Failed to deserialize legacy SPL token account: ${error}`);
+        throw DarklakeError.fromValidationError(
+          `Failed to deserialize legacy SPL token account: ${error}`,
+          createErrorContext('getTokenBalance', { account: accountData.toString(), program: 'legacy' }),
+          error as Error
+        );
       }
     }
 
@@ -922,11 +975,18 @@ export class DarklakeAmm {
         const tokenAccount = AccountLayout.decode(baseAccountData);
         return new BN(tokenAccount.amount.toString());
       } catch (error) {
-        throw new Error(`Failed to deserialize Token-2022 account: ${error}`);
+        throw DarklakeError.fromValidationError(
+          `Failed to deserialize Token-2022 account: ${error}`,
+          createErrorContext('getTokenBalance', { account: accountData.toString(), program: 'token-2022' }),
+          error as Error
+        );
       }
     }
 
-    throw new Error('Invalid token program');
+    throw DarklakeError.fromValidationError(
+      'Invalid token program',
+      createErrorContext('getTokenBalance', { account: accountData.toString(), owner: accountOwner.toString() })
+    );
   }
 
   // Static helper methods
