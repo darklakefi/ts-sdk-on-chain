@@ -1,7 +1,5 @@
 import {
   DarklakeSDK,
-  PublicKey,
-  Commitment,
   SwapMode,
   SwapParamsIx,
   DEVNET_LOOKUP,
@@ -12,6 +10,8 @@ import {
   SOL_MINT,
 } from '@darklake/ts-sdk-on-chain';
 import {
+  Commitment,
+  PublicKey,
   Keypair,
   Connection,
   ComputeBudgetProgram,

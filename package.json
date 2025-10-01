@@ -1,6 +1,6 @@
 {
   "name": "@darklakefi/ts-sdk-on-chain",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Darklake DEX TypeScript SDK - A standalone SDK for interacting directly with Darklake AMM pools",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

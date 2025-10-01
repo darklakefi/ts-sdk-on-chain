@@ -319,7 +319,7 @@ export class DarklakeSDK {
         units: 500000,
       });
 
-      let allInstructions = [
+      const allInstructions = [
         computeBudgetIx,
         createWsolAtaIx,
         finalizeInstruction,
@@ -376,7 +376,7 @@ export class DarklakeSDK {
       const tokenXPostSol = isXSol ? NATIVE_MINT : tokenX;
       const tokenYPostSol = isYSol ? NATIVE_MINT : tokenY;
 
-      let [poolKey, tokenMintX, tokenMintY] = this.getPoolAddress(
+      const [poolKey, tokenMintX, tokenMintY] = this.getPoolAddress(
         tokenXPostSol,
         tokenYPostSol,
       );
@@ -476,7 +476,7 @@ export class DarklakeSDK {
       const tokenXPostSol = isXSol ? NATIVE_MINT : tokenX;
       const tokenYPostSol = isYSol ? NATIVE_MINT : tokenY;
 
-      let [poolKey, tokenMintX, tokenMintY] = this.getPoolAddress(
+      const [poolKey, tokenMintX, tokenMintY] = this.getPoolAddress(
         tokenXPostSol,
         tokenYPostSol,
       );
@@ -600,7 +600,7 @@ export class DarklakeSDK {
       const tokenXPostSol = isXSol ? NATIVE_MINT : tokenX;
       const tokenYPostSol = isYSol ? NATIVE_MINT : tokenY;
 
-      let [_, tokenMintX, tokenMintY] = this.getPoolAddress(
+      const [, tokenMintX, tokenMintY] = this.getPoolAddress(
         tokenXPostSol,
         tokenYPostSol,
       );
@@ -1038,4 +1038,4 @@ export class DarklakeSDK {
     }
     return [tokenMintX, tokenMintY];
   }
-} // Test comment
+}
