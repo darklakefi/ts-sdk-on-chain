@@ -390,19 +390,19 @@ try {
 ### Building
 
 ```bash
-npm run build
-```
-
-### Testing
-
-```bash
-npm test
+pnpm run build
 ```
 
 ### Linting
 
 ```bash
-npm run lint
+pnpm run lint
+```
+
+### Formatting
+
+```bash
+pnpm run format
 ```
 
 ## License

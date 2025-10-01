@@ -1,21 +1,16 @@
 import { DarklakeSDK, Order } from '@darklake/ts-sdk-on-chain';
 import {
-  AccountInfo,
   AddressLookupTableAccount,
   Connection,
   PublicKey,
   Keypair,
-  Transaction,
   SystemProgram,
-  LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import {
   createMint,
   createAssociatedTokenAccount,
   mintTo,
   getAssociatedTokenAddress,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
   NATIVE_MINT,
   createSyncNativeInstruction,
@@ -78,7 +73,7 @@ export async function createNewTokens(
   amount: number,
 ): Promise<{ tokenMintX: PublicKey; tokenMintY: PublicKey }> {
   try {
-    console.log(
+    console.info(
       `🪙 Creating two new tokens and minting ${amount} to ${payer.publicKey.toString()}`,
     );
 
@@ -100,8 +95,8 @@ export async function createNewTokens(
       9, // decimals
     );
 
-    console.log(`✅ Created token mint X: ${tokenMintX.toString()}`);
-    console.log(`✅ Created token mint Y: ${tokenMintY.toString()}`);
+    console.info(`✅ Created token mint X: ${tokenMintX.toString()}`);
+    console.info(`✅ Created token mint Y: ${tokenMintY.toString()}`);
 
     // Create associated token accounts for both tokens
     const tokenAccountX = await createAssociatedTokenAccount(
@@ -118,8 +113,8 @@ export async function createNewTokens(
       payer.publicKey,
     );
 
-    console.log(`✅ Created token account X: ${tokenAccountX.toString()}`);
-    console.log(`✅ Created token account Y: ${tokenAccountY.toString()}`);
+    console.info(`✅ Created token account X: ${tokenAccountX.toString()}`);
+    console.info(`✅ Created token account Y: ${tokenAccountY.toString()}`);
 
     // Mint tokens to the accounts
     const mintAmount = amount * Math.pow(10, 9); // Convert to token units (9 decimals)
@@ -142,7 +137,7 @@ export async function createNewTokens(
       mintAmount,
     );
 
-    console.log(
+    console.info(
       `✅ Minted ${amount} tokens of each type to ${payer.publicKey.toString()}`,
     );
 
@@ -173,7 +168,7 @@ export async function createWsolAccountAndWrap(
   syncNativeIx: any;
 }> {
   try {
-    console.log(
+    console.info(
       `🔄 Creating WSOL ATA and wrapping ${amount} lamports of SOL to WSOL...`,
     );
 
@@ -190,8 +185,8 @@ export async function createWsolAccountAndWrap(
     // Sync the native SOL balance to the token account (this wraps SOL to WSOL)
     const syncNativeIx = createSyncNativeInstruction(wsolAccount);
 
-    console.log(`✅ WSOL ATA created at: ${wsolAccount.toString()}`);
-    console.log(
+    console.info(`✅ WSOL ATA created at: ${wsolAccount.toString()}`);
+    console.info(
       `✅ Instructions prepared for wrapping ${amount} lamports of SOL to WSOL`,
     );
 
@@ -216,7 +211,7 @@ export async function createWsolAccountIx(
   payer: Keypair,
 ): Promise<{ wsolAccount: PublicKey; createWsolAtaIx: any }> {
   try {
-    console.log(`🔄 Creating WSOL ATA for remove liquidity operation...`);
+    console.info(`🔄 Creating WSOL ATA for remove liquidity operation...`);
 
     // Get the WSOL Associated Token Account address
     const wsolAccount = await getAssociatedTokenAddress(
@@ -233,7 +228,7 @@ export async function createWsolAccountIx(
         NATIVE_MINT,
       );
 
-    console.log(`✅ WSOL ATA created at: ${wsolAccount.toString()}`);
+    console.info(`✅ WSOL ATA created at: ${wsolAccount.toString()}`);
 
     return {
       wsolAccount,
@@ -257,7 +252,7 @@ export async function unwrapWsolAndCloseAccountIx(
   payer: Keypair,
 ): Promise<{ syncNativeIx: any; closeAccountIx: any }> {
   try {
-    console.log(`🔄 Unwrapping WSOL and closing ATA account...`);
+    console.info(`🔄 Unwrapping WSOL and closing ATA account...`);
 
     // Get the WSOL Associated Token Account address
     const wsolAccount = await getAssociatedTokenAddress(
@@ -276,7 +271,7 @@ export async function unwrapWsolAndCloseAccountIx(
       [], // multisig signers
     );
 
-    console.log(
+    console.info(
       `✅ Instructions prepared for unwrapping WSOL and closing ATA account`,
     );
 
