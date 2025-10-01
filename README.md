@@ -21,15 +21,20 @@ pnpm install @darklake/sdk-on-chain
 ### Basic Setup
 
 ```typescript
-import { DarklakeSDK, CommitmentLevel, PublicKey, BN } from '@darklake/ts-sdk-on-chain';
+import {
+  DarklakeSDK,
+  CommitmentLevel,
+  PublicKey,
+  BN,
+} from '@darklake/ts-sdk-on-chain';
 
 // Initialize the SDK
 const sdk = new DarklakeSDK(
   'https://api.devnet.solana.com', // RPC endpoint
-  CommitmentLevel.Confirmed,        // Commitment level
-  true,                            // isDevnet
-  'my-app',                        // label (optional, max 10 chars)
-  'ref123'                         // ref code (optional, max 20 chars)
+  CommitmentLevel.Confirmed, // Commitment level
+  true, // isDevnet
+  'my-app', // label (optional, max 10 chars)
+  'ref123', // ref code (optional, max 20 chars)
 );
 ```
 
@@ -43,11 +48,11 @@ Creates a complete swap transaction.
 
 ```typescript
 const { tx, orderKey, minOut, salt } = await sdk.swapTx(
-  tokenIn,      // PublicKey - input token mint
-  tokenOut,     // PublicKey - output token mint  
-  amountIn,     // BN - input amount
+  tokenIn, // PublicKey - input token mint
+  tokenOut, // PublicKey - output token mint
+  amountIn, // BN - input amount
   minAmountOut, // BN - minimum output amount
-  tokenOwner    // PublicKey - token owner
+  tokenOwner, // PublicKey - token owner
 );
 ```
 
@@ -57,11 +62,11 @@ Finalizes a swap order by settling, canceling, or slashing it.
 
 ```typescript
 const { tx } = await sdk.finalizeTx(
-  orderKey,     // PublicKey - order key from swapTx
-  true,         // boolean - unwrap WSOL to SOL
-  minOut,       // BN - minimum output amount
-  salt,         // Uint8Array - salt from swapTx
-  settleSigner  // PublicKey - optional settle signer
+  orderKey, // PublicKey - order key from swapTx
+  true, // boolean - unwrap WSOL to SOL
+  minOut, // BN - minimum output amount
+  salt, // Uint8Array - salt from swapTx
+  settleSigner, // PublicKey - optional settle signer
 );
 ```
 
@@ -71,12 +76,12 @@ Adds liquidity to a pool.
 
 ```typescript
 const { tx } = await sdk.addLiquidityTx(
-  tokenX,       // PublicKey - first token mint
-  tokenY,       // PublicKey - second token mint
-  maxAmountX,   // BN - maximum amount of token X
-  maxAmountY,   // BN - maximum amount of token Y
-  amountLp,     // BN - LP tokens to mint
-  user          // PublicKey - user public key
+  tokenX, // PublicKey - first token mint
+  tokenY, // PublicKey - second token mint
+  maxAmountX, // BN - maximum amount of token X
+  maxAmountY, // BN - maximum amount of token Y
+  amountLp, // BN - LP tokens to mint
+  user, // PublicKey - user public key
 );
 ```
 
@@ -86,12 +91,12 @@ Removes liquidity from a pool.
 
 ```typescript
 const { tx } = await sdk.removeLiquidityTx(
-  tokenX,       // PublicKey - first token mint
-  tokenY,       // PublicKey - second token mint
-  minAmountX,   // BN - minimum amount of token X to receive
-  minAmountY,   // BN - minimum amount of token Y to receive
-  amountLp,     // BN - LP tokens to burn
-  user          // PublicKey - user public key
+  tokenX, // PublicKey - first token mint
+  tokenY, // PublicKey - second token mint
+  minAmountX, // BN - minimum amount of token X to receive
+  minAmountY, // BN - minimum amount of token Y to receive
+  amountLp, // BN - LP tokens to burn
+  user, // PublicKey - user public key
 );
 ```
 
@@ -101,11 +106,11 @@ Initializes a new liquidity pool.
 
 ```typescript
 const { tx } = await sdk.initializePoolTx(
-  tokenX,       // PublicKey - first token mint
-  tokenY,       // PublicKey - second token mint
-  amountX,      // BN - initial amount of token X
-  amountY,      // BN - initial amount of token Y
-  user          // PublicKey - user public key
+  tokenX, // PublicKey - first token mint
+  tokenY, // PublicKey - second token mint
+  amountX, // BN - initial amount of token X
+  amountY, // BN - initial amount of token Y
+  user, // PublicKey - user public key
 );
 ```
 
@@ -133,13 +138,13 @@ Creates a swap instruction.
 
 ```typescript
 const swapParamsIx: SwapParamsIx = {
-  sourceMint: tokenIn,           // PublicKey
-  destinationMint: tokenOut,     // PublicKey
-  tokenTransferAuthority: user,  // PublicKey
-  inAmount: amountIn,            // BN
-  swapMode: SwapMode.ExactIn,    // SwapMode
-  minOut: minAmountOut,          // BN
-  salt: generateRandomSalt()     // Uint8Array
+  sourceMint: tokenIn, // PublicKey
+  destinationMint: tokenOut, // PublicKey
+  tokenTransferAuthority: user, // PublicKey
+  inAmount: amountIn, // BN
+  swapMode: SwapMode.ExactIn, // SwapMode
+  minOut: minAmountOut, // BN
+  salt: generateRandomSalt(), // Uint8Array
 };
 
 const swapInstruction = await sdk.swapIx(swapParamsIx);
@@ -151,15 +156,15 @@ Creates a finalize instruction (settle, cancel, or slash).
 
 ```typescript
 const finalizeParamsIx: FinalizeParamsIx = {
-  settleSigner: settleSigner,    // PublicKey
-  orderOwner: orderOwner,        // PublicKey
-  unwrapWsol: true,             // boolean
-  minOut: minOut,               // BN
-  salt: salt,                   // Uint8Array
-  output: output,               // BN
-  commitment: commitment,        // BN
-  deadline: deadline,           // BN
-  currentSlot: currentSlot       // BN
+  settleSigner: settleSigner, // PublicKey
+  orderOwner: orderOwner, // PublicKey
+  unwrapWsol: true, // boolean
+  minOut: minOut, // BN
+  salt: salt, // Uint8Array
+  output: output, // BN
+  commitment: commitment, // BN
+  deadline: deadline, // BN
+  currentSlot: currentSlot, // BN
 };
 
 const finalizeInstruction = await sdk.finalizeIx(finalizeParamsIx);
@@ -171,10 +176,10 @@ Creates an add liquidity instruction.
 
 ```typescript
 const addLiquidityParamsIx: AddLiquidityParamsIx = {
-  user: user,           // PublicKey
-  amountLp: amountLp,   // BN
+  user: user, // PublicKey
+  amountLp: amountLp, // BN
   maxAmountX: maxAmountX, // BN
-  maxAmountY: maxAmountY  // BN
+  maxAmountY: maxAmountY, // BN
 };
 
 const addLiquidityInstruction = await sdk.addLiquidityIx(addLiquidityParamsIx);
@@ -186,13 +191,15 @@ Creates a remove liquidity instruction.
 
 ```typescript
 const removeLiquidityParamsIx: RemoveLiquidityParamsIx = {
-  user: user,           // PublicKey
-  amountLp: amountLp,   // BN
+  user: user, // PublicKey
+  amountLp: amountLp, // BN
   minAmountX: minAmountX, // BN
-  minAmountY: minAmountY  // BN
+  minAmountY: minAmountY, // BN
 };
 
-const removeLiquidityInstruction = await sdk.removeLiquidityIx(removeLiquidityParamsIx);
+const removeLiquidityInstruction = await sdk.removeLiquidityIx(
+  removeLiquidityParamsIx,
+);
 ```
 
 ### `initializePoolIx(initializePoolParamsIx)`
@@ -201,16 +208,18 @@ Creates an initialize pool instruction.
 
 ```typescript
 const initializePoolParamsIx: InitializePoolParamsIx = {
-  user: user,                    // PublicKey
-  amountX: amountX,              // BN
-  amountY: amountY,              // BN
-  tokenX: tokenX,                // PublicKey
-  tokenXProgram: tokenXProgram,  // PublicKey
-  tokenY: tokenY,                // PublicKey
-  tokenYProgram: tokenYProgram   // PublicKey
+  user: user, // PublicKey
+  amountX: amountX, // BN
+  amountY: amountY, // BN
+  tokenX: tokenX, // PublicKey
+  tokenXProgram: tokenXProgram, // PublicKey
+  tokenY: tokenY, // PublicKey
+  tokenYProgram: tokenYProgram, // PublicKey
 };
 
-const initializePoolInstruction = await sdk.initializePoolIx(initializePoolParamsIx);
+const initializePoolInstruction = await sdk.initializePoolIx(
+  initializePoolParamsIx,
+);
 ```
 
 ## Utility Functions
@@ -243,7 +252,10 @@ const [orderedTokenX, orderedTokenY] = sdk.sortTokens(tokenMintX, tokenMintY);
 Loads pool data for internal state tracking. **Required** before using instruction functions call when using `...ix()` functions.
 
 ```typescript
-const [poolKey, orderedTokenMintX, orderedTokenMintY] = await sdk.loadPool(tokenMintX, tokenMintY);
+const [poolKey, orderedTokenMintX, orderedTokenMintY] = await sdk.loadPool(
+  tokenMintX,
+  tokenMintY,
+);
 ```
 
 ### `updateAccounts()`
@@ -266,7 +278,7 @@ const sdk = new DarklakeSDK(
   'confirmed',
   true,
   'my-app',
-  'ref123'
+  'ref123',
 );
 
 // Setup
@@ -286,7 +298,7 @@ const { tx, orderKey, minOut, salt } = await sdk.swapTx(
   tokenOut,
   amountIn,
   new BN(quote.outAmount.muln(0.95)), // 5% slippage
-  wallet.publicKey
+  wallet.publicKey,
 );
 
 // Sign and send
@@ -299,9 +311,9 @@ await connection.confirmTransaction(signature);
 
 const { tx: finalizeTx } = await sdk.finalizeTx(
   orderKey,
-  true,  // unwrap WSOL
+  true, // unwrap WSOL
   minOut,
-  salt
+  salt,
 );
 
 const signedFinalizeTx = await wallet.signTransaction(finalizeTx);
@@ -317,15 +329,16 @@ The `quote()` function returns a `Quote` object with the following structure:
 
 ```typescript
 interface Quote {
-  inAmount: BN;      // Amount that the exchange will use to trade, calculated by subtracting ALL fees from the user input. So it's NOT the user input value.
-  outAmount: BN;     // The output amount from the exchange EXCLUDING any transfer fees imposed by the token itself (if it does so)
-  feeAmount: BN;     // The total amount of fees deducted by the exchange NOT including any fees imposed by tokens
+  inAmount: BN; // Amount that the exchange will use to trade, calculated by subtracting ALL fees from the user input. So it's NOT the user input value.
+  outAmount: BN; // The output amount from the exchange EXCLUDING any transfer fees imposed by the token itself (if it does so)
+  feeAmount: BN; // The total amount of fees deducted by the exchange NOT including any fees imposed by tokens
   feeMint: PublicKey; // Pubkey address of a token in which the fees are charged
-  feePct: BN;        // The current total fee rate of the trade in percentage. Max value 1000000 = 100%
+  feePct: BN; // The current total fee rate of the trade in percentage. Max value 1000000 = 100%
 }
 ```
 
 **Key Points:**
+
 - `inAmount` is the actual amount used for trading after all exchange fees are deducted (both dex and token transfer fees if any)
 - `outAmount` dex output, excludes any token-level transfer fees (e.g., USDC transfer fees)
 - `feeAmount` only includes exchange fees, not token transfer fees
@@ -399,6 +412,7 @@ MIT License - see LICENSE file for details.
 ## Support
 
 For issues and questions:
+
 - Check the examples in the repository
 - Review the SDK source code
 - Open an issue on the repository

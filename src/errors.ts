@@ -1,4 +1,3 @@
-
 // SDK-specific error codes
 export enum ErrorCode {
   // Math library errors
@@ -7,7 +6,7 @@ export enum ErrorCode {
   MathLibTradeTooBig = 'MathLibTradeTooBig',
   MathLibInsufficientPoolTokenXBalance = 'MathLibInsufficientPoolTokenXBalance',
   MathLibInsufficientPoolTokenYBalance = 'MathLibInsufficientPoolTokenYBalance',
-  
+
   // SDK errors
   NetworkError = 'NetworkError',
   ValidationError = 'ValidationError',
@@ -24,7 +23,7 @@ export class DarklakeError extends Error {
     code: ErrorCode,
     message: string,
     context?: Record<string, any>,
-    originalError?: Error
+    originalError?: Error,
   ) {
     super(message);
     this.name = 'DarklakeError';
@@ -33,21 +32,48 @@ export class DarklakeError extends Error {
     this.originalError = originalError;
   }
 
-  static fromMathError(code: ErrorCode, context?: Record<string, any>): DarklakeError {
+  static fromMathError(
+    code: ErrorCode,
+    context?: Record<string, any>,
+  ): DarklakeError {
     const message = getErrorMessage(code);
     return new DarklakeError(code, message, context);
   }
 
-  static fromNetworkError(error: Error, context?: Record<string, any>): DarklakeError {
-    return new DarklakeError(ErrorCode.NetworkError, `Network error: ${error.message}`, context, error);
+  static fromNetworkError(
+    error: Error,
+    context?: Record<string, any>,
+  ): DarklakeError {
+    return new DarklakeError(
+      ErrorCode.NetworkError,
+      `Network error: ${error.message}`,
+      context,
+      error,
+    );
   }
 
-  static fromValidationError(message: string, context?: Record<string, any>, originalError?: Error): DarklakeError {
-    return new DarklakeError(ErrorCode.ValidationError, message, context, originalError);
+  static fromValidationError(
+    message: string,
+    context?: Record<string, any>,
+    originalError?: Error,
+  ): DarklakeError {
+    return new DarklakeError(
+      ErrorCode.ValidationError,
+      message,
+      context,
+      originalError,
+    );
   }
 
-  static fromUnsupportedOperation(operation: string, context?: Record<string, any>): DarklakeError {
-    return new DarklakeError(ErrorCode.UnsupportedOperation, `Operation not supported: ${operation}`, context);
+  static fromUnsupportedOperation(
+    operation: string,
+    context?: Record<string, any>,
+  ): DarklakeError {
+    return new DarklakeError(
+      ErrorCode.UnsupportedOperation,
+      `Operation not supported: ${operation}`,
+      context,
+    );
   }
 }
 
@@ -57,13 +83,15 @@ function getErrorMessage(code: ErrorCode): string {
     [ErrorCode.MathLibInputAmountTooSmall]: 'Input amount is too small',
     [ErrorCode.MathLibMathOverflow]: 'Mathematical overflow occurred',
     [ErrorCode.MathLibTradeTooBig]: 'Trade amount is too large',
-    [ErrorCode.MathLibInsufficientPoolTokenXBalance]: 'Insufficient pool token X balance',
-    [ErrorCode.MathLibInsufficientPoolTokenYBalance]: 'Insufficient pool token Y balance',
+    [ErrorCode.MathLibInsufficientPoolTokenXBalance]:
+      'Insufficient pool token X balance',
+    [ErrorCode.MathLibInsufficientPoolTokenYBalance]:
+      'Insufficient pool token Y balance',
     [ErrorCode.NetworkError]: 'Network error occurred',
     [ErrorCode.ValidationError]: 'Validation error',
     [ErrorCode.UnsupportedOperation]: 'Operation not supported',
   };
-  
+
   return messages[code] || 'Unknown error';
 }
 
@@ -73,11 +101,13 @@ export function isDarklakeError(error: any): error is DarklakeError {
 }
 
 // Helper function to create context for errors
-export function createErrorContext(operation: string, params?: Record<string, any>): Record<string, any> {
+export function createErrorContext(
+  operation: string,
+  params?: Record<string, any>,
+): Record<string, any> {
   return {
     operation,
     timestamp: new Date().toISOString(),
     ...params,
   };
 }
-  

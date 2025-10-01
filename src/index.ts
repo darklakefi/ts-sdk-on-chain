@@ -12,12 +12,12 @@ export * from './constants';
 export * from './utils';
 
 // Re-export commonly used Solana types for convenience
-export { 
-  PublicKey, 
-  Connection, 
-  TransactionInstruction, 
+export {
+  PublicKey,
+  Connection,
+  TransactionInstruction,
   VersionedTransaction,
-  Commitment
+  Commitment,
 } from '@solana/web3.js';
 
 export { BN } from 'bn.js';

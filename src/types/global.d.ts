@@ -12,7 +12,7 @@ declare module 'ffjavascript' {
     toString(): string;
     toJSON(): string;
   }
-  
+
   export function buildBn128(): Promise<any>;
   export const utils: {
     unstringifyBigInts: (obj: any) => any;
