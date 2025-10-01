@@ -72,7 +72,7 @@ export class DarklakeSDK {
     this.isDevnet = isDevnet;
 
     // label
-    const sdkLabelPrefix = 'jcv0.1.1';
+    const sdkLabelPrefix = 'jcv0.2.0';
 
     // sanity check for in-case we exceed prefix length
     if (sdkLabelPrefix.length > 10) {
