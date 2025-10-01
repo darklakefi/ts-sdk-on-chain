@@ -1,7 +1,5 @@
 import {
   DarklakeSDK,
-  PublicKey,
-  Commitment,
   SwapMode,
   SwapParamsIx,
   DEVNET_LOOKUP,
@@ -12,6 +10,8 @@ import {
   SOL_MINT,
 } from '@darklake/ts-sdk-on-chain';
 import {
+  Commitment,
+  PublicKey,
   Keypair,
   Connection,
   ComputeBudgetProgram,
@@ -78,7 +78,7 @@ function loadPrivateKey(keyFileName: string): Keypair {
     }
 
     const keypair = Keypair.fromSecretKey(new Uint8Array(privateKeyBytes));
-    console.log(
+    console.info(
       `🔑 Loaded private key for wallet: ${keypair.publicKey.toString()}`,
     );
     return keypair;
@@ -102,7 +102,7 @@ function parseArgs(): { operation: string; mode: string } {
   }
 
   if (args.length < 2) {
-    console.error('❌ Usage: npm start <operation> <mode>');
+    console.error('❌ Usage: pnpm start <operation> <mode>');
     console.error(
       '   Operations: settle, cancel, slash, addLiquidity, removeLiquidity, initializePool, all, quote',
     );
@@ -126,6 +126,7 @@ function parseArgs(): { operation: string; mode: string } {
     'addLiquidity',
     'removeLiquidity',
     'initializePool',
+    'settleDifferentSettler',
     'all',
     'quote',
     'settleFromSol',
@@ -153,7 +154,7 @@ function parseArgs(): { operation: string; mode: string } {
 
 // Initialize SDK helper
 async function initializeSDK(): Promise<DarklakeSDK> {
-  console.log('🚀 Initializing Darklake SDK...');
+  console.info('🚀 Initializing Darklake SDK...');
 
   // Initialize the SDK
   const sdk = new DarklakeSDK(
@@ -164,31 +165,32 @@ async function initializeSDK(): Promise<DarklakeSDK> {
     null, // refCode
   );
 
-  console.log('✅ SDK initialized successfully');
-  console.log(`📡 Connected to: ${RPC_ENDPOINT}`);
-  console.log(`🏷️  SDK Label: test-app`);
+  console.info('✅ SDK initialized successfully');
+  console.info(`📡 Connected to: ${RPC_ENDPOINT}`);
+  console.info(`🏷️  SDK Label: test-app`);
 
   return sdk;
 }
 
 // Quote operation
 async function runQuote(sdk: DarklakeSDK): Promise<void> {
-  console.log('\n🔄 Running quote operation...');
+  console.info('\n🔄 Running quote operation...');
 
   const quote = await sdk.quote(TOKEN_MINT_X, TOKEN_MINT_Y, new BN(1000));
-  console.log('✅ Quote generated successfully!');
+  console.info('✅ Quote generated successfully!');
 
-  console.log('Quote:', convertBNToReadable(quote));
+  console.info('Quote:', convertBNToReadable(quote));
 }
 
 // Settle operation
-async function runSettle(
+async function runSettleDifferentSettler(
   sdk: DarklakeSDK,
   connection: Connection,
   keypair: Keypair,
+  settlerKeypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running settle operation...');
+  console.info('\n🔄 Running settle with different settler operation...');
 
   // For settle, we need an existing order - this is a simplified example
   // In practice, you'd need to provide an order key or get it from a previous swap
@@ -232,8 +234,161 @@ async function runSettle(
         preflightCommitment: 'confirmed',
       },
     );
-    console.log(`✅ Swap transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
+      `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
+    );
+
+    await sdk.updateAccounts();
+
+    const order = await retryGetOrderAccount(sdk, keypair.publicKey);
+    if (!order) {
+      throw new Error('Order not found');
+    }
+
+    // Generate settle instruction only - the key difference is minOut <= output triggers settle
+    const settleInstruction = await sdk.finalizeIx({
+      settleSigner: settlerKeypair.publicKey,
+      orderOwner: keypair.publicKey,
+      unwrapWsol: false,
+      minOut: swapParamsIx.minOut,
+      salt: swapParamsIx.salt,
+      output: new BN(order.dOut.toString()),
+      commitment: order.cMin,
+      deadline: new BN(order.deadline.toString()),
+      currentSlot: new BN(await connection.getSlot('processed')),
+    });
+
+    const settleComputeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 300000,
+    });
+
+    const allSettleInstructions = [settleComputeBudgetIx, settleInstruction];
+
+    const settleMessage = new TransactionMessage({
+      recentBlockhash: (await connection.getLatestBlockhash()).blockhash,
+      instructions: allSettleInstructions,
+      payerKey: settlerKeypair.publicKey,
+    }).compileToV0Message([addressLookupTableAccount]);
+    const settleVersionedTransaction = new VersionedTransaction(settleMessage);
+    settleVersionedTransaction.sign([settlerKeypair]);
+    const settleSignature = await connection.sendTransaction(
+      settleVersionedTransaction,
+      {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      },
+    );
+    console.info(`✅ Settle transaction sent successfully!`);
+    console.info(
+      `🔗 View on Solscan: https://solscan.io/tx/${settleSignature}?cluster=devnet`,
+    );
+  } else if (mode === 'tx') {
+    console.info('Swap -> settle using the tx method...');
+
+    const minOut = new BN(10);
+    const inputAmount = new BN(1000);
+    const swapResult = await sdk.swapTx(
+      TOKEN_MINT_X,
+      TOKEN_MINT_Y,
+      inputAmount,
+      minOut,
+      keypair.publicKey,
+    );
+
+    const tx = swapResult.tx;
+    tx.sign([keypair]);
+    const swapSignature = await connection.sendTransaction(tx, {
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
+    });
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
+      `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
+    );
+
+    console.info('Generating settle transaction...');
+    const finalizeResult = await sdk.finalizeTx(
+      swapResult.orderKey,
+      false, // unwrapWsol
+      minOut, // minOut - should be from actual order
+      swapResult.salt, // salt - should be from actual order
+      settlerKeypair.publicKey,
+    );
+    console.info('✅ Settle transaction generated successfully!');
+
+    finalizeResult.tx.sign([settlerKeypair]);
+
+    const finalizeSignature = await connection.sendTransaction(
+      finalizeResult.tx,
+      {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      },
+    );
+
+    console.info(`✅ Finalize transaction sent successfully!`);
+    console.info(
+      `🔗 View on Solscan: https://solscan.io/tx/${finalizeSignature}?cluster=devnet`,
+    );
+  } else {
+    throw new Error('Mode not implemented');
+  }
+}
+
+// Settle operation
+async function runSettle(
+  sdk: DarklakeSDK,
+  connection: Connection,
+  keypair: Keypair,
+  mode: string,
+) {
+  console.info('\n🔄 Running settle operation...');
+
+  // For settle, we need an existing order - this is a simplified example
+  // In practice, you'd need to provide an order key or get it from a previous swap
+
+  if (mode === 'ix') {
+    await sdk.loadPool(TOKEN_MINT_X, TOKEN_MINT_Y);
+    await sdk.updateAccounts();
+
+    const swapParamsIx: SwapParamsIx = {
+      sourceMint: TOKEN_MINT_X,
+      destinationMint: TOKEN_MINT_Y,
+      tokenTransferAuthority: keypair.publicKey,
+      inAmount: new BN(1000),
+      swapMode: SwapMode.ExactIn,
+      minOut: new BN(10),
+      salt: new Uint8Array(32),
+    };
+    const swapResult = await sdk.swapIx(swapParamsIx);
+
+    const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 300000,
+    });
+    const allSwapInstructions = [computeBudgetIx, swapResult];
+
+    const addressLookupTableAccount = await getAddressLookupTable(
+      DEVNET_LOOKUP,
+      connection,
+    );
+    const recentBlockhash = await connection.getLatestBlockhash();
+    const swapMessage = new TransactionMessage({
+      recentBlockhash: recentBlockhash.blockhash,
+      instructions: allSwapInstructions,
+      payerKey: keypair.publicKey,
+    }).compileToV0Message([addressLookupTableAccount]);
+    const swapVersionedTransaction = new VersionedTransaction(swapMessage);
+    swapVersionedTransaction.sign([keypair]);
+    const swapSignature = await connection.sendTransaction(
+      swapVersionedTransaction,
+      {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      },
+    );
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
     );
 
@@ -277,12 +432,12 @@ async function runSettle(
         preflightCommitment: 'confirmed',
       },
     );
-    console.log(`✅ Settle transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Settle transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${settleSignature}?cluster=devnet`,
     );
   } else if (mode === 'tx') {
-    console.log('Swap -> settle using the tx method...');
+    console.info('Swap -> settle using the tx method...');
 
     const minOut = new BN(10);
     const inputAmount = new BN(1000);
@@ -300,12 +455,12 @@ async function runSettle(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Swap transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
     );
 
-    console.log('Generating settle transaction...');
+    console.info('Generating settle transaction...');
     const finalizeResult = await sdk.finalizeTx(
       swapResult.orderKey,
       false, // unwrapWsol
@@ -313,7 +468,7 @@ async function runSettle(
       swapResult.salt, // salt - should be from actual order
       keypair.publicKey,
     );
-    console.log('✅ Settle transaction generated successfully!');
+    console.info('✅ Settle transaction generated successfully!');
 
     finalizeResult.tx.sign([keypair]);
 
@@ -325,8 +480,8 @@ async function runSettle(
       },
     );
 
-    console.log(`✅ Finalize transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Finalize transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${finalizeSignature}?cluster=devnet`,
     );
   } else {
@@ -341,7 +496,7 @@ async function runCancel(
   keypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running cancel operation...');
+  console.info('\n🔄 Running cancel operation...');
 
   if (mode === 'ix') {
     await sdk.loadPool(TOKEN_MINT_X, TOKEN_MINT_Y);
@@ -382,8 +537,8 @@ async function runCancel(
         preflightCommitment: 'confirmed',
       },
     );
-    console.log(`✅ Swap transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
     );
 
@@ -427,12 +582,12 @@ async function runCancel(
         preflightCommitment: 'confirmed',
       },
     );
-    console.log(`✅ Cancel transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Cancel transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${cancelSignature}?cluster=devnet`,
     );
   } else if (mode === 'tx') {
-    console.log('Swap -> cancel using the tx method...');
+    console.info('Swap -> cancel using the tx method...');
 
     const minOut = new BN(100000);
     const inputAmount = new BN(1000);
@@ -450,12 +605,12 @@ async function runCancel(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Swap transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
     );
 
-    console.log('Generating cancel transaction...');
+    console.info('Generating cancel transaction...');
     const finalizeResult = await sdk.finalizeTx(
       swapResult.orderKey,
       false, // unwrapWsol
@@ -463,7 +618,7 @@ async function runCancel(
       swapResult.salt, // salt - should be from actual order
       keypair.publicKey,
     );
-    console.log('✅ Cancel transaction generated successfully!');
+    console.info('✅ Cancel transaction generated successfully!');
 
     finalizeResult.tx.sign([keypair]);
 
@@ -475,8 +630,8 @@ async function runCancel(
       },
     );
 
-    console.log(`✅ Finalize transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Finalize transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${finalizeSignature}?cluster=devnet`,
     );
   } else {
@@ -491,7 +646,7 @@ async function runSlash(
   keypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running slash operation...');
+  console.info('\n🔄 Running slash operation...');
 
   if (mode === 'ix') {
     const minOut = new BN(10);
@@ -515,7 +670,7 @@ async function runSlash(
       units: 300000,
     });
 
-    let allSwapInstructions = [computeBudgetIx, swapInstruction];
+    const allSwapInstructions = [computeBudgetIx, swapInstruction];
 
     const addressLookupTableAccount = await getAddressLookupTable(
       tableAddress,
@@ -539,8 +694,8 @@ async function runSlash(
         preflightCommitment: 'confirmed',
       },
     );
-    console.log(`✅ Swap transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
     );
 
@@ -554,9 +709,9 @@ async function runSlash(
     let currentSlot = await connection.getSlot('processed');
     while (order.deadline.gte(new BN(currentSlot + 1))) {
       currentSlot = await connection.getSlot('processed');
-      console.log('Waiting for order to expire...');
-      console.log('Current slot:', currentSlot);
-      console.log('Order deadline:', order.deadline.toString());
+      console.info('Waiting for order to expire...');
+      console.info('Current slot:', currentSlot);
+      console.info('Order deadline:', order.deadline.toString());
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
@@ -591,12 +746,12 @@ async function runSlash(
         preflightCommitment: 'confirmed',
       },
     );
-    console.log(`✅ Slash transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Slash transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${slashSignature}?cluster=devnet`,
     );
 
-    console.log('✅ Slash instruction generated successfully!');
+    console.info('✅ Slash instruction generated successfully!');
   } else if (mode === 'tx') {
     // Generate and execute slash transaction
     const minOut = new BN(100000);
@@ -615,8 +770,8 @@ async function runSlash(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Swap transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
     );
 
@@ -629,13 +784,13 @@ async function runSlash(
     let currentSlot = await connection.getSlot('processed');
     while (order.deadline.gte(new BN(currentSlot + 2))) {
       currentSlot = await connection.getSlot('processed');
-      console.log('Waiting for order to expire...');
-      console.log('Current slot:', currentSlot);
-      console.log('Order deadline:', order.deadline.toString());
+      console.info('Waiting for order to expire...');
+      console.info('Current slot:', currentSlot);
+      console.info('Order deadline:', order.deadline.toString());
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
-    console.log('Generating slash transaction...');
+    console.info('Generating slash transaction...');
     const finalizeResult = await sdk.finalizeTx(
       swapResult.orderKey,
       false, // unwrapWsol
@@ -643,7 +798,7 @@ async function runSlash(
       swapResult.salt, // salt - should be from actual order
       keypair.publicKey,
     );
-    console.log('✅ Slash transaction generated successfully!');
+    console.info('✅ Slash transaction generated successfully!');
 
     finalizeResult.tx.sign([keypair]);
 
@@ -655,8 +810,8 @@ async function runSlash(
       },
     );
 
-    console.log(`✅ Finalize transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Finalize transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${finalizeSignature}?cluster=devnet`,
     );
   } else {
@@ -671,14 +826,11 @@ async function runAddLiquidity(
   keypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running add liquidity operation...');
+  console.info('\n🔄 Running add liquidity operation...');
 
   if (mode === 'ix') {
-    console.log('\n📊 Loading pool...');
-    const [poolKey, orderedTokenMintX, orderedTokenMintY] = await sdk.loadPool(
-      TOKEN_MINT_X,
-      TOKEN_MINT_Y,
-    );
+    console.info('\n📊 Loading pool...');
+    await sdk.loadPool(TOKEN_MINT_X, TOKEN_MINT_Y);
     await sdk.updateAccounts();
 
     const maxAmountX = new BN(100);
@@ -724,12 +876,12 @@ async function runAddLiquidity(
       },
     );
 
-    console.log(`✅ Add liquidity transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Add liquidity transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${addLiquiditySignature}?cluster=devnet`,
     );
   } else if (mode === 'tx') {
-    console.log('Add liquidity using the tx method...');
+    console.info('Add liquidity using the tx method...');
 
     const maxAmountX = new BN(100);
     const maxAmountY = new BN(200);
@@ -749,8 +901,8 @@ async function runAddLiquidity(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Add liquidity transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Add liquidity transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${addLiquiditySignature}?cluster=devnet`,
     );
   } else {
@@ -765,14 +917,11 @@ async function runRemoveLiquidity(
   keypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running remove liquidity operation...');
+  console.info('\n🔄 Running remove liquidity operation...');
 
   if (mode === 'ix') {
-    console.log('\n📊 Loading pool...');
-    const [poolKey, orderedTokenMintX, orderedTokenMintY] = await sdk.loadPool(
-      TOKEN_MINT_X,
-      TOKEN_MINT_Y,
-    );
+    console.info('\n📊 Loading pool...');
+    await sdk.loadPool(TOKEN_MINT_X, TOKEN_MINT_Y);
     await sdk.updateAccounts();
 
     const minAmountX = new BN(10);
@@ -819,12 +968,12 @@ async function runRemoveLiquidity(
       },
     );
 
-    console.log(`✅ Remove liquidity transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Remove liquidity transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${removeLiquiditySignature}?cluster=devnet`,
     );
   } else if (mode === 'tx') {
-    console.log('Remove liquidity using the tx method...');
+    console.info('Remove liquidity using the tx method...');
 
     const minAmountX = new BN(10);
     const minAmountY = new BN(20);
@@ -844,8 +993,8 @@ async function runRemoveLiquidity(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Remove liquidity transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Remove liquidity transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${removeLiquiditySignature}?cluster=devnet`,
     );
   } else {
@@ -860,8 +1009,8 @@ async function runInitializePool(
   keypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running initialize pool operation...');
-  console.log(
+  console.info('\n🔄 Running initialize pool operation...');
+  console.info(
     '⚠️  Note: Initialize pool functionality is not fully implemented in the current SDK',
   );
 
@@ -915,12 +1064,12 @@ async function runInitializePool(
       },
     );
 
-    console.log(`✅ Initialize pool transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Initialize pool transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${initializePoolSignature}?cluster=devnet`,
     );
   } else if (mode === 'tx') {
-    console.log('Add liquidity using the tx method...');
+    console.info('Add liquidity using the tx method...');
 
     const initializePoolResult = await sdk.initializePoolTx(
       tokenMintX,
@@ -936,8 +1085,8 @@ async function runInitializePool(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Add liquidity transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Add liquidity transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${addLiquiditySignature}?cluster=devnet`,
     );
   } else {
@@ -952,7 +1101,7 @@ async function runSettleFromSol(
   keypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running settle from SOL operation...');
+  console.info('\n🔄 Running settle from SOL operation...');
 
   if (mode === 'ix') {
     // Dex does not support SOL as the source mint directly, so we need to use NATIVE_MINT (WSOL)
@@ -1004,8 +1153,8 @@ async function runSettleFromSol(
         preflightCommitment: 'confirmed',
       },
     );
-    console.log(`✅ Swap transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
     );
 
@@ -1049,12 +1198,12 @@ async function runSettleFromSol(
         preflightCommitment: 'confirmed',
       },
     );
-    console.log(`✅ Settle transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Settle transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${settleSignature}?cluster=devnet`,
     );
   } else if (mode === 'tx') {
-    console.log('Swap from SOL -> settle using the tx method...');
+    console.info('Swap from SOL -> settle using the tx method...');
 
     const minOut = new BN(10);
     const inputAmount = new BN(1000);
@@ -1072,12 +1221,12 @@ async function runSettleFromSol(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Swap transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
     );
 
-    console.log('Generating settle transaction...');
+    console.info('Generating settle transaction...');
     // unwrapping can also be done manually using instrunctions
     const finalizeResult = await sdk.finalizeTx(
       swapResult.orderKey,
@@ -1086,7 +1235,7 @@ async function runSettleFromSol(
       swapResult.salt,
       keypair.publicKey,
     );
-    console.log('✅ Settle transaction generated successfully!');
+    console.info('✅ Settle transaction generated successfully!');
 
     finalizeResult.tx.sign([keypair]);
 
@@ -1098,8 +1247,8 @@ async function runSettleFromSol(
       },
     );
 
-    console.log(`✅ Finalize transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Finalize transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${finalizeSignature}?cluster=devnet`,
     );
   } else {
@@ -1114,7 +1263,7 @@ async function runSettleToSol(
   keypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running settle to SOL operation...');
+  console.info('\n🔄 Running settle to SOL operation...');
 
   if (mode === 'ix') {
     await sdk.loadPool(TOKEN_MINT_X, NATIVE_MINT);
@@ -1155,8 +1304,8 @@ async function runSettleToSol(
         preflightCommitment: 'confirmed',
       },
     );
-    console.log(`✅ Swap transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
     );
 
@@ -1200,12 +1349,12 @@ async function runSettleToSol(
         preflightCommitment: 'confirmed',
       },
     );
-    console.log(`✅ Settle transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Settle transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${settleSignature}?cluster=devnet`,
     );
   } else if (mode === 'tx') {
-    console.log('Swap to SOL -> settle using the tx method...');
+    console.info('Swap to SOL -> settle using the tx method...');
 
     const minOut = new BN(10);
     const inputAmount = new BN(1000);
@@ -1223,12 +1372,12 @@ async function runSettleToSol(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Swap transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Swap transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${swapSignature}?cluster=devnet`,
     );
 
-    console.log('Generating settle transaction...');
+    console.info('Generating settle transaction...');
     const finalizeResult = await sdk.finalizeTx(
       swapResult.orderKey,
       true, // unwrapWsol - unwrap WSOL back to SOL
@@ -1236,7 +1385,7 @@ async function runSettleToSol(
       swapResult.salt,
       keypair.publicKey,
     );
-    console.log('✅ Settle transaction generated successfully!');
+    console.info('✅ Settle transaction generated successfully!');
 
     finalizeResult.tx.sign([keypair]);
 
@@ -1248,8 +1397,8 @@ async function runSettleToSol(
       },
     );
 
-    console.log(`✅ Finalize transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Finalize transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${finalizeSignature}?cluster=devnet`,
     );
   } else {
@@ -1264,10 +1413,10 @@ async function runAddLiquiditySol(
   keypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running add liquidity with SOL operation...');
+  console.info('\n🔄 Running add liquidity with SOL operation...');
 
   if (mode === 'ix') {
-    console.log('\n📊 Loading pool...');
+    console.info('\n📊 Loading pool...');
     const [, orderedTokenMintX, orderedTokenMintY] = await sdk.loadPool(
       NATIVE_MINT,
       TOKEN_MINT_X,
@@ -1334,12 +1483,12 @@ async function runAddLiquiditySol(
       },
     );
 
-    console.log(`✅ Add liquidity transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Add liquidity transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${addLiquiditySignature}?cluster=devnet`,
     );
   } else if (mode === 'tx') {
-    console.log('Add liquidity with SOL using the tx method...');
+    console.info('Add liquidity with SOL using the tx method...');
 
     const maxSolAmount = new BN(100); // SOL amount
     const maxTokenXAmount = new BN(200); // Token X amount
@@ -1359,8 +1508,8 @@ async function runAddLiquiditySol(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Add liquidity transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Add liquidity transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${addLiquiditySignature}?cluster=devnet`,
     );
   } else {
@@ -1375,10 +1524,10 @@ async function runRemoveLiquiditySol(
   keypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running remove liquidity with SOL operation...');
+  console.info('\n🔄 Running remove liquidity with SOL operation...');
 
   if (mode === 'ix') {
-    console.log('\n📊 Loading pool...');
+    console.info('\n📊 Loading pool...');
     const [, orderedTokenMintX, orderedTokenMintY] = await sdk.loadPool(
       NATIVE_MINT,
       TOKEN_MINT_X,
@@ -1447,12 +1596,12 @@ async function runRemoveLiquiditySol(
       },
     );
 
-    console.log(`✅ Remove liquidity transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Remove liquidity transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${removeLiquiditySignature}?cluster=devnet`,
     );
   } else if (mode === 'tx') {
-    console.log('Remove liquidity with SOL using the tx method...');
+    console.info('Remove liquidity with SOL using the tx method...');
 
     const minSolAmountX = new BN(10); // SOL amount
     const minTokenXAmount = new BN(20); // Token Y amount
@@ -1472,8 +1621,8 @@ async function runRemoveLiquiditySol(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Remove liquidity transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Remove liquidity transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${removeLiquiditySignature}?cluster=devnet`,
     );
   } else {
@@ -1488,12 +1637,12 @@ async function runInitializePoolSol(
   keypair: Keypair,
   mode: string,
 ) {
-  console.log('\n🔄 Running initialize pool with SOL operation...');
-  console.log(
+  console.info('\n🔄 Running initialize pool with SOL operation...');
+  console.info(
     '⚠️  Note: Initialize pool functionality is not fully implemented in the current SDK',
   );
 
-  const { tokenMintX: tokenMintX_, tokenMintY: _ } = await createNewTokens(
+  const { tokenMintX: tokenMintX_ } = await createNewTokens(
     connection,
     keypair,
     1000000,
@@ -1556,12 +1705,12 @@ async function runInitializePoolSol(
       },
     );
 
-    console.log(`✅ Initialize pool transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Initialize pool transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${initializePoolSignature}?cluster=devnet`,
     );
   } else if (mode === 'tx') {
-    console.log('Initialize pool with SOL using the tx method...');
+    console.info('Initialize pool with SOL using the tx method...');
 
     const initializePoolResult = await sdk.initializePoolTx(
       SOL_MINT,
@@ -1577,8 +1726,8 @@ async function runInitializePoolSol(
       skipPreflight: false,
       preflightCommitment: 'confirmed',
     });
-    console.log(`✅ Initialize pool transaction sent successfully!`);
-    console.log(
+    console.info(`✅ Initialize pool transaction sent successfully!`);
+    console.info(
       `🔗 View on Solscan: https://solscan.io/tx/${initializePoolSignature}?cluster=devnet`,
     );
   } else {
@@ -1592,6 +1741,13 @@ type OperationFunction = (
   keypair: Keypair,
   mode: string,
 ) => Promise<void>;
+type OperationFunctionWithSettler = (
+  sdk: DarklakeSDK,
+  connection: Connection,
+  keypair: Keypair,
+  settlerKeypair: Keypair,
+  mode: string,
+) => Promise<void>;
 type ShortOperationFunction = (sdk: DarklakeSDK) => Promise<void>;
 
 // All operation - runs all operations sequentially with 10s pauses
@@ -1599,20 +1755,25 @@ async function runAll(
   sdk: DarklakeSDK,
   connection: Connection,
   keypair: Keypair,
+  settlerKeypair: Keypair,
   mode: string,
 ) {
-  console.log(
+  console.info(
     '\n🎬 Starting ALL mode - running all operations sequentially with 10s pauses...',
   );
-  console.log(
+  console.info(
     '⚠️  This will take approximately 2-3 minutes to complete all operations',
   );
 
   const operations: {
     name: string;
-    fn: OperationFunction | ShortOperationFunction;
+    fn:
+      | OperationFunction
+      | ShortOperationFunction
+      | OperationFunctionWithSettler;
   }[] = [
     { name: 'Quote', fn: runQuote },
+    { name: 'Settle Different Settler', fn: runSettleDifferentSettler },
     { name: 'Initialize Pool', fn: runInitializePool },
     { name: 'Add Liquidity', fn: runAddLiquidity },
     { name: 'Settle', fn: runSettle },
@@ -1629,31 +1790,39 @@ async function runAll(
   for (let i = 0; i < operations.length; i++) {
     const { name, fn } = operations[i];
 
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`🎯 Running operation ${i + 1}/${operations.length}: ${name}`);
-    console.log(`${'='.repeat(60)}`);
+    console.info(`\n${'='.repeat(60)}`);
+    console.info(`🎯 Running operation ${i + 1}/${operations.length}: ${name}`);
+    console.info(`${'='.repeat(60)}`);
 
     try {
-      // Check if function only accepts one parameter (ShortOperationFunction)
+      // fn.length works, because we don't use default parameters
       if (fn.length === 1) {
         await (fn as ShortOperationFunction)(sdk);
+      } else if (fn.length === 4) {
+        await (fn as OperationFunction)(sdk, connection, keypair, mode);
       } else {
-        await fn(sdk, connection, keypair, mode);
+        await (fn as OperationFunctionWithSettler)(
+          sdk,
+          connection,
+          keypair,
+          settlerKeypair,
+          mode,
+        );
       }
-      console.log(`✅ ${name} completed successfully!`);
+      console.info(`✅ ${name} completed successfully!`);
     } catch (error) {
       console.error(`❌ ${name} failed:`, error);
-      console.log(`⚠️  Continuing with next operation...`);
+      console.info(`⚠️  Continuing with next operation...`);
     }
 
     // Add 10-second pause between operations (except for the last one)
     if (i < operations.length - 1) {
-      console.log(`\n⏳ Waiting 10 seconds before next operation...`);
+      console.info(`\n⏳ Waiting 10 seconds before next operation...`);
       await sleep(10000);
     }
   }
 
-  console.log(
+  console.info(
     `\n🎉 ALL completed! All ${operations.length} operations have been executed.`,
   );
 }
@@ -1663,8 +1832,8 @@ async function main() {
     // Parse CLI arguments
     const { operation, mode } = parseArgs();
 
-    console.log(`🎯 Operation: ${operation}`);
-    console.log(`🎯 Mode: ${mode}`);
+    console.info(`🎯 Operation: ${operation}`);
+    console.info(`🎯 Mode: ${mode}`);
 
     const connection = new Connection(RPC_ENDPOINT, 'processed' as Commitment);
     // Initialize SDK
@@ -1672,8 +1841,8 @@ async function main() {
     const userKeypair = loadPrivateKey('user.json');
     const settlerKeypair = loadPrivateKey('settler.json');
 
-    console.log('operation', operation);
-    console.log('mode', mode);
+    console.info('operation', operation);
+    console.info('mode', mode);
 
     // Route to appropriate function based on operation
     switch (operation) {
@@ -1682,6 +1851,15 @@ async function main() {
         break;
       case 'settle':
         await runSettle(sdk, connection, userKeypair, mode);
+        break;
+      case 'settleDifferentSettler':
+        await runSettleDifferentSettler(
+          sdk,
+          connection,
+          userKeypair,
+          settlerKeypair,
+          mode,
+        );
         break;
       case 'cancel':
         await runCancel(sdk, connection, userKeypair, mode);
@@ -1714,14 +1892,14 @@ async function main() {
         await runInitializePoolSol(sdk, connection, userKeypair, mode);
         break;
       case 'all':
-        await runAll(sdk, connection, userKeypair, mode);
+        await runAll(sdk, connection, userKeypair, settlerKeypair, mode);
         break;
       default:
         console.error(`❌ Unknown operation: ${operation}`);
         process.exit(1);
     }
 
-    console.log('\n🎉 Operation completed successfully!');
+    console.info('\n🎉 Operation completed successfully!');
   } catch (error) {
     console.error('❌ Error occurred:', error);
 

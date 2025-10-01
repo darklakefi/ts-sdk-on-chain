@@ -292,42 +292,42 @@ export interface SettleAndAccountMetas {
   discriminator: Uint8Array;
   settle: DarklakeAmmSettleParams;
   data: Uint8Array;
-  accountMetas: any[];
+  accountMetas: Array<AccountMeta>;
 }
 
 export interface CancelAndAccountMetas {
   discriminator: Uint8Array;
   cancel: DarklakeAmmCancelParams;
   data: Uint8Array;
-  accountMetas: any[];
+  accountMetas: Array<AccountMeta>;
 }
 
 export interface SlashAndAccountMetas {
   discriminator: Uint8Array;
   slash: DarklakeAmmSlashParams;
   data: Uint8Array;
-  accountMetas: any[];
+  accountMetas: Array<AccountMeta>;
 }
 
 export interface AddLiquidityAndAccountMetas {
   discriminator: Uint8Array;
   addLiquidity: DarklakeAmmAddLiquidityParams;
   data: Uint8Array;
-  accountMetas: any[];
+  accountMetas: Array<AccountMeta>;
 }
 
 export interface RemoveLiquidityAndAccountMetas {
   discriminator: Uint8Array;
   removeLiquidity: DarklakeAmmRemoveLiquidityParams;
   data: Uint8Array;
-  accountMetas: any[];
+  accountMetas: Array<AccountMeta>;
 }
 
 export interface InitializePoolAndAccountMetas {
   discriminator: Uint8Array;
   initializePool: DarklakeAmmInitializePoolParams;
   data: Uint8Array;
-  accountMetas: any[];
+  accountMetas: Array<AccountMeta>;
 }
 
 // Darklake AMM specific parameter types

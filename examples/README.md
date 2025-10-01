@@ -68,36 +68,36 @@ The Darklake SDK provides two types of functions for each operation:
 
 ```bash
 # Generate instruction only (no transaction execution)
-npm run settle:ix
-npm run addLiquidity:ix
-npm run initializePoolSol:ix
+pnpm run settle:ix
+pnpm run addLiquidity:ix
+pnpm run initializePoolSol:ix
 
 # Execute full transaction
-npm run settle:tx
-npm run addLiquidity:tx
-npm run initializePoolSol:tx
+pnpm run settle:tx
+pnpm run addLiquidity:tx
+pnpm run initializePoolSol:tx
 
 # Get a quote
-npm run quote
+pnpm run quote
 ```
 
 ### SOL Operations
 
 ```bash
 # SOL-specific operations
-npm run settleFromSol:tx
-npm run addLiquiditySol:ix
-npm run removeLiquiditySol:tx
+pnpm run settleFromSol:tx
+pnpm run addLiquiditySol:ix
+pnpm run removeLiquiditySol:tx
 ```
 
 ### Batch Operations
 
 ```bash
 # Run all operations in instruction mode
-npm run all:ix
+pnpm run all:ix
 
 # Run all operations in transaction mode
-npm run all:tx
+pnpm run all:tx
 ```
 
 ## Setup
@@ -106,19 +106,13 @@ npm run all:tx
 
 ```bash
 cd examples
-npm install
+pnpm install
 ```
 
-2. Build the examples:
+2. Run any script:
 
 ```bash
-npm run build
-```
-
-3. Run any script:
-
-```bash
-npm run <script-name>
+pnpm run <script-name>
 ```
 
 ## Configuration

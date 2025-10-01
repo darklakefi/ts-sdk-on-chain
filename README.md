@@ -13,7 +13,7 @@ A TypeScript client SDK for interacting with Darklake AMM pools on Solana. This 
 ## Installation
 
 ```bash
-pnpm install @darklake/sdk-on-chain
+pnpm install @darklakefi/ts-sdk-on-chain
 ```
 
 ## Quick Start
@@ -21,12 +21,7 @@ pnpm install @darklake/sdk-on-chain
 ### Basic Setup
 
 ```typescript
-import {
-  DarklakeSDK,
-  CommitmentLevel,
-  PublicKey,
-  BN,
-} from '@darklake/ts-sdk-on-chain';
+import { DarklakeSDK, BN } from '@darklakefi/ts-sdk-on-chain';
 
 // Initialize the SDK
 const sdk = new DarklakeSDK(
@@ -269,7 +264,7 @@ await sdk.updateAccounts();
 ## Complete Trading Example
 
 ```typescript
-import { DarklakeSDK, PublicKey, BN } from '@darklake/ts-sdk-on-chain';
+import { DarklakeSDK, PublicKey, BN } from '@darklakefi/ts-sdk-on-chain';
 import { Connection, Keypair } from '@solana/web3.js';
 
 // Initialize SDK
@@ -390,19 +385,19 @@ try {
 ### Building
 
 ```bash
-npm run build
-```
-
-### Testing
-
-```bash
-npm test
+pnpm run build
 ```
 
 ### Linting
 
 ```bash
-npm run lint
+pnpm run lint
+```
+
+### Formatting
+
+```bash
+pnpm run format
 ```
 
 ## License

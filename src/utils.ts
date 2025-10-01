@@ -7,8 +7,6 @@ import {
 } from '@solana/web3.js';
 import {
   getAssociatedTokenAddress,
-  createAssociatedTokenAccountInstruction,
-  TOKEN_PROGRAM_ID,
   NATIVE_MINT,
   createSyncNativeInstruction,
   createCloseAccountInstruction,
