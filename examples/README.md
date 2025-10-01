@@ -2,80 +2,117 @@
 
 This directory contains practical examples demonstrating how to use the Darklake SDK for on-chain operations.
 
-## Examples
+## Understanding SDK Function Modes
 
-### Main Example (`main.ts`)
+The Darklake SDK provides two types of functions for each operation:
 
-A comprehensive CLI tool that demonstrates various Darklake SDK operations with different execution modes.
+### Transaction Functions (ending with 'tx')
 
-**Usage:**
+- **Purpose**: Return complete `VersionedTransaction` objects ready to be signed and sent
+- **Features**:
+  - Automatically handle SOL/WSOL wrapping
+  - Include all necessary instructions
+  - Automatically call `loadPool` and `updateAccounts` internally
+  - No manual state management required
+- **Use Case**: When you want a complete, ready-to-execute transaction
+
+### Instruction Functions (ending with 'ix')
+
+- **Purpose**: Return `TransactionInstruction` objects for manual transaction building
+- **Features**:
+  - More granular control over transaction construction
+  - Require manual state management
+  - Must call `loadPool` before starting pool usage
+  - Must call `updateAccounts` before each instruction call
+- **Use Case**: When you need fine-grained control or want to combine with other instructions
+
+**Important**: When using instruction functions, you are responsible for calling `loadPool` and `updateAccounts` before starting pool usage, and `updateAccounts` before each further call.
+
+## Available Scripts
+
+### Core Operations
+
+#### Order Flow
+
+- **`settle:ix`** / **`settle:tx`** - Settle an existing order
+- **`cancel:ix`** / **`cancel:tx`** - Cancel an existing order
+- **`slash:ix`** / **`slash:tx`** - Slash an expired order
+
+#### Liquidity Management
+
+- **`addLiquidity:ix`** / **`addLiquidity:tx`** - Add liquidity to a pool
+- **`removeLiquidity:ix`** / **`removeLiquidity:tx`** - Remove liquidity from a pool
+- **`initializePool:ix`** / **`initializePool:tx`** - Initialize a new pool
+
+### Operations with SOL
+
+#### SOL Order Flow
+
+- **`settleFromSol:ix`** / **`settleFromSol:tx`** - Settle an order from SOL
+- **`settleToSol:ix`** / **`settleToSol:tx`** - Settle an order to SOL
+
+#### SOL Liquidity Management
+
+- **`addLiquiditySol:ix`** / **`addLiquiditySol:tx`** - Add liquidity with SOL
+- **`removeLiquiditySol:ix`** / **`removeLiquiditySol:tx`** - Remove liquidity to SOL
+- **`initializePoolSol:ix`** / **`initializePoolSol:tx`** - Initialize pool with SOL
+
+### Utility Operations
+
+- **`quote`** - Get a price quote for a swap (no mode required)
+- **`all:ix`** / **`all:tx`** - Run all operations sequentially with 10s pauses
+
+## Usage Examples
+
+### Basic Usage
+
 ```bash
-npm start <operation> <mode>
+# Generate instruction only (no transaction execution)
+pnpm run settle:ix
+pnpm run addLiquidity:ix
+pnpm run initializePoolSol:ix
+
+# Execute full transaction
+pnpm run settle:tx
+pnpm run addLiquidity:tx
+pnpm run initializePoolSol:tx
+
+# Get a quote
+pnpm run quote
 ```
 
-**Operations:**
-- `settle` - Settle an existing order
-- `cancel` - Cancel an existing order  
-- `slash` - Slash an expired order
-- `addLiquidity` - Add liquidity to a pool (placeholder)
-- `removeLiquidity` - Remove liquidity from a pool (placeholder)
-- `initializePool` - Initialize a new pool (placeholder)
+### SOL Operations
 
-**Modes:**
-- `ix` - Generate instruction only (no transaction execution)
-- `tx` - Generate and execute full transaction
-
-**Examples:**
 ```bash
-# Generate settle instruction only
-npm run settle:ix
-
-# Execute settle transaction
-npm run settle:tx
-
-# Generate cancel instruction only  
-npm run cancel:ix
-
-# Execute cancel transaction
-npm run cancel:tx
-
-# Generate slash instruction only
-npm run slash:ix
-
-# Execute slash transaction
-npm run slash:tx
+# SOL-specific operations
+pnpm run settleFromSol:tx
+pnpm run addLiquiditySol:ix
+pnpm run removeLiquiditySol:tx
 ```
 
-### Swap Example (`swap-example.ts`)
+### Batch Operations
 
-Demonstrates how to:
-- Initialize the Darklake SDK
-- Load a trading pool
-- Get a quote for a swap
-- Generate a swap transaction
-- Handle transaction parameters and metadata
+```bash
+# Run all operations in instruction mode
+pnpm run all:ix
+
+# Run all operations in transaction mode
+pnpm run all:tx
+```
 
 ## Setup
 
 1. Install dependencies:
+
 ```bash
 cd examples
-npm install
+pnpm install
 ```
 
-2. Build the examples:
-```bash
-npm run build
-```
+2. Run any script:
 
-3. Run the swap example:
 ```bash
-npm run example:swap
-```
-
-Or run directly with ts-node:
-```bash
-npx ts-node swap-example.ts
+pnpm run <script-name>
 ```
 
 ## Configuration
@@ -88,22 +125,54 @@ The examples use the following default configuration:
 
 You can modify these values in the example files as needed.
 
-## Key Features Demonstrated
-
-1. **SDK Initialization**: Shows how to create a new DarklakeSDK instance
-2. **Pool Loading**: Demonstrates loading a trading pool by token mints
-3. **Quote Generation**: Shows how to get price quotes before swapping
-4. **Transaction Building**: Illustrates building swap transactions with proper parameters
-5. **Error Handling**: Includes comprehensive error handling and logging
-
 ## Transaction Flow
 
+### For Transaction Functions (tx mode):
+
 1. Initialize SDK with RPC endpoint and configuration
-2. Load the trading pool for the specified token pair
-3. Get a quote for the desired swap amount
-4. Calculate minimum output amount with slippage tolerance
-5. Generate the swap transaction with all necessary instructions
-6. Return transaction details including order key and metadata
+2. Load the trading pool for the specified token pair (automatic)
+3. Get a quote for the desired operation
+4. Generate the complete transaction with all necessary instructions
+5. Return transaction details ready for signing and sending
+
+### For Instruction Functions (ix mode):
+
+1. Initialize SDK with RPC endpoint and configuration
+2. **Manually** load the pool data: `await sdk.loadPool(tokenMintX, tokenMintY)`
+3. **Manually** update accounts: `await sdk.updateAccounts()`
+4. Generate the instruction with proper parameters
+5. Construct a versioned transaction
+6. Sign and send
+
+Note. **Before any subsequent ...ix() call if pool does not change**: `await sdk.updateAccounts()`
+
+## Script Categories
+
+### Order Management Scripts
+
+These scripts handle swap order lifecycle:
+
+- `settle:ix/tx` - Complete a swap order
+- `cancel:ix/tx` - Cancel a pending order
+- `slash:ix/tx` - Slash an expired order
+- `settleFromSol:ix/tx` - Settle order from SOL
+- `settleToSol:ix/tx` - Settle order to SOL
+
+### Liquidity Management Scripts
+
+These scripts handle pool liquidity:
+
+- `addLiquidity:ix/tx` - Add liquidity to existing pool
+- `removeLiquidity:ix/tx` - Remove liquidity from pool
+- `initializePool:ix/tx` - Create new liquidity pool
+- `addLiquiditySol:ix/tx` - Add liquidity with SOL
+- `removeLiquiditySol:ix/tx` - Remove liquidity to SOL
+- `initializePoolSol:ix/tx` - Initialize pool with SOL
+
+### Utility Scripts
+
+- `quote` - Get price quotes without executing transactions
+- `all:ix/tx` - Run all operations in sequence for testing
 
 ## Notes
 
@@ -111,6 +180,8 @@ You can modify these values in the example files as needed.
 - In production, you would use real wallet keypairs for signing transactions
 - The examples include detailed logging to help understand the process
 - Error handling is comprehensive to help with debugging
+- Instruction functions require manual state management
+- Transaction functions handle state management automatically
 
 ## Next Steps
 
@@ -119,4 +190,19 @@ After running the examples:
 1. **Sign Transactions**: Use a real wallet to sign the generated transactions
 2. **Send Transactions**: Submit signed transactions to the Solana network
 3. **Monitor Status**: Track transaction and order status using the returned order key
-4. **Handle Results**: Process successful swaps or handle failures appropriately
+4. **Handle Results**: Process successful operations or handle failures appropriately
+5. **Integrate**: Use the patterns shown in your own applications
+
+## Understanding the Difference
+
+- **Use `ix` mode** when you need more transaction control:
+  - Combine multiple instructions in a single transaction
+  - Have fine-grained control over transaction construction
+  - Integrate with other Solana programs
+  - Build custom transaction flows
+
+- **Use `tx` mode** when you want simplified flow:
+  - Execute operations easily
+  - Let the SDK handle all the complexity of pool management
+  - Focus on business logic rather than transaction construction
+  - Sign and send

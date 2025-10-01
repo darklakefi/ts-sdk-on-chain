@@ -1,21 +1,20 @@
-import { 
-  PublicKey, 
-  Connection, 
+import {
+  PublicKey,
+  Connection,
   AddressLookupTableAccount,
   SystemProgram,
-  TransactionInstruction
+  TransactionInstruction,
 } from '@solana/web3.js';
-import { 
-  getAssociatedTokenAddress, 
-  createAssociatedTokenAccountInstruction,
-  TOKEN_PROGRAM_ID,
+import {
+  getAssociatedTokenAddress,
   NATIVE_MINT,
   createSyncNativeInstruction,
   createCloseAccountInstruction,
   ExtensionType,
   Mint,
   TransferFeeConfig,
-  TransferFeeConfigLayout
+  TransferFeeConfigLayout,
+  createAssociatedTokenAccountIdempotentInstruction,
 } from '@solana/spl-token';
 import BN from 'bn.js';
 import { DEVNET_LOOKUP, MAINNET_LOOKUP } from './constants';
@@ -32,11 +31,14 @@ export function generateRandomSalt(): Uint8Array {
 /**
  * Convert string to bytes array with specified length
  */
-export function convertStringToBytesArray(s: string, length: number): Uint8Array {
+export function convertStringToBytesArray(
+  s: string,
+  length: number,
+): Uint8Array {
   if (s.length > length) {
     throw new Error(`String length must be less than or equal to ${length}.`);
   }
-  
+
   const bytes = new Uint8Array(length);
   const stringBytes = new TextEncoder().encode(s);
   bytes.set(stringBytes);
@@ -48,20 +50,20 @@ export function convertStringToBytesArray(s: string, length: number): Uint8Array
  */
 export async function getAddressLookupTable(
   connection: Connection,
-  isDevnet: boolean
+  isDevnet: boolean,
 ): Promise<AddressLookupTableAccount> {
   const altPubkey = isDevnet ? DEVNET_LOOKUP : MAINNET_LOOKUP;
-  
+
   const altAccount = await connection.getAccountInfo(altPubkey);
   if (!altAccount) {
     throw new Error('Failed to get address lookup table');
   }
-  
-   const state = AddressLookupTableAccount.deserialize(altAccount.data);
-   return new AddressLookupTableAccount({
+
+  const state = AddressLookupTableAccount.deserialize(altAccount.data);
+  return new AddressLookupTableAccount({
     key: altPubkey,
-    state
-   });
+    state,
+  });
 }
 
 /**
@@ -69,58 +71,60 @@ export async function getAddressLookupTable(
  */
 export async function getWrapSolToWsolInstructions(
   payer: PublicKey,
-  amountInLamports: BN
+  amountInLamports: BN,
 ): Promise<TransactionInstruction[]> {
   const instructions: TransactionInstruction[] = [];
-  
+
   // 1. Create associated token account for WSOL (idempotent)
-  const wsolAta = await getAssociatedTokenAddress(payer, NATIVE_MINT);
-  const createAtaIx = createAssociatedTokenAccountInstruction(
+  const wsolAta = await getAssociatedTokenAddress(NATIVE_MINT, payer);
+  const createAtaIx = createAssociatedTokenAccountIdempotentInstruction(
     payer, // payer
     wsolAta, // ata
     payer, // owner
-    NATIVE_MINT // mint
+    NATIVE_MINT, // mint
   );
-  
+
   // 2. Transfer SOL to the ATA
   const transferSolIx = SystemProgram.transfer({
     fromPubkey: payer,
     toPubkey: wsolAta,
-    lamports: amountInLamports.toNumber()
+    lamports: amountInLamports.toNumber(),
   });
-  
+
   // 3. Sync the ATA to mark it as wrapped
   const syncNativeIx = createSyncNativeInstruction(wsolAta);
-  
+
   instructions.push(createAtaIx);
   instructions.push(transferSolIx);
   instructions.push(syncNativeIx);
-  
+
   return instructions;
 }
 
 /**
  * Get close WSOL instructions
  */
-export async function getCloseWsolInstructions(payer: PublicKey): Promise<TransactionInstruction[]> {
+export async function getCloseWsolInstructions(
+  payer: PublicKey,
+): Promise<TransactionInstruction[]> {
   const instructions: TransactionInstruction[] = [];
-  
-  const wsolAta = await getAssociatedTokenAddress(payer, NATIVE_MINT);
-  
+
+  const wsolAta = await getAssociatedTokenAddress(NATIVE_MINT, payer);
+
   // 1. Sync the ATA to ensure all lamports are accounted for
   const syncNativeIx = createSyncNativeInstruction(wsolAta);
-  
+
   // 2. Close the WSOL token account
   const closeAccountIx = createCloseAccountInstruction(
     wsolAta, // account
     payer, // destination
     payer, // owner
-    [] // multisig signers
+    [], // multisig signers
   );
-  
+
   instructions.push(syncNativeIx);
   instructions.push(closeAccountIx);
-  
+
   return instructions;
 }
 
@@ -129,12 +133,12 @@ export async function getCloseWsolInstructions(payer: PublicKey): Promise<Transa
  */
 export function calculateTransferFee(
   transferFeeConfig: any,
-  preFeeAmount: BN
+  preFeeAmount: BN,
 ): BN {
   if (!transferFeeConfig) {
     return new BN(0);
   }
-  
+
   // This is a simplified implementation
   // In practice, you'd need to implement the full Token2022 transfer fee calculation
   const feeRate = transferFeeConfig.transferFeeBasisPoints || 0;
@@ -165,15 +169,15 @@ export function toPublicKey(value: string | PublicKey | Uint8Array): PublicKey {
   if (value instanceof PublicKey) {
     return value;
   }
-  
+
   if (typeof value === 'string') {
     return new PublicKey(value);
   }
-  
+
   if (value instanceof Uint8Array) {
     return new PublicKey(value);
   }
-  
+
   throw new Error('Invalid public key format');
 }
 
@@ -181,7 +185,7 @@ export function toPublicKey(value: string | PublicKey | Uint8Array): PublicKey {
  * Sleep utility function
  */
 export function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -190,10 +194,10 @@ export function sleep(ms: number): Promise<void> {
 export async function retry<T>(
   fn: () => Promise<T>,
   maxAttempts: number = 5,
-  delayMs: number = 1000
+  delayMs: number = 1000,
 ): Promise<T> {
   let lastError: Error;
-  
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
@@ -205,32 +209,38 @@ export async function retry<T>(
       await sleep(delayMs);
     }
   }
-  
+
   throw lastError!;
 }
 
-export const TYPE_SIZE = 2
-export const LENGTH_SIZE = 2
+export const TYPE_SIZE = 2;
+export const LENGTH_SIZE = 2;
 
-export function getExtensionData(extension: ExtensionType, tlvData: Buffer): Buffer | null {
-  let extensionTypeIndex = 0
+export function getExtensionData(
+  extension: ExtensionType,
+  tlvData: Buffer,
+): Buffer | null {
+  let extensionTypeIndex = 0;
   while (extensionTypeIndex + TYPE_SIZE + LENGTH_SIZE <= tlvData.length) {
-    const entryType = tlvData.readUInt16LE(extensionTypeIndex)
-    const entryLength = tlvData.readUInt16LE(extensionTypeIndex + TYPE_SIZE)
-    const typeIndex = extensionTypeIndex + TYPE_SIZE + LENGTH_SIZE
+    const entryType = tlvData.readUInt16LE(extensionTypeIndex);
+    const entryLength = tlvData.readUInt16LE(extensionTypeIndex + TYPE_SIZE);
+    const typeIndex = extensionTypeIndex + TYPE_SIZE + LENGTH_SIZE;
     if (entryType == extension) {
-      return tlvData.slice(typeIndex, typeIndex + entryLength)
+      return tlvData.slice(typeIndex, typeIndex + entryLength);
     }
-    extensionTypeIndex = typeIndex + entryLength
+    extensionTypeIndex = typeIndex + entryLength;
   }
-  return null
+  return null;
 }
 
 export function getTransferFeeConfig(mint: Mint): TransferFeeConfig | null {
-  const extensionData = getExtensionData(ExtensionType.TransferFeeConfig, mint.tlvData)
+  const extensionData = getExtensionData(
+    ExtensionType.TransferFeeConfig,
+    mint.tlvData,
+  );
   if (extensionData !== null) {
-    return TransferFeeConfigLayout.decode(extensionData)
+    return TransferFeeConfigLayout.decode(extensionData);
   } else {
-    return null
+    return null;
   }
 }

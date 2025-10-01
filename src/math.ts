@@ -1,12 +1,12 @@
 import BN from 'bn.js';
 import { MAX_PERCENTAGE } from './constants';
-import { ErrorCode } from './errors';
+import { ErrorCode, DarklakeError, createErrorContext } from './errors';
 import { TransferFee } from '@solana/spl-token';
 import Decimal from 'decimal.js';
 
 // Structs/Interfaces
 export interface QuoteAmmConfig {
-  tradeFeeRate: BN;    // 10^6 = 100%
+  tradeFeeRate: BN; // 10^6 = 100%
   protocolFeeRate: BN; // 10^6 = 100% (percentage of trade fee)
   ratioChangeToleranceRate: BN; // 10^6 = 100%
 }
@@ -45,49 +45,70 @@ export interface SwapResult {
 // Utility functions
 export function checkedSub(a: BN, b: BN): BN {
   if (a.lt(b)) {
-    throw new Error('Underflow');
+    throw DarklakeError.fromValidationError(
+      'Mathematical underflow in subtraction',
+      createErrorContext('checkedSub', { a: a.toString(), b: b.toString() }),
+    );
   }
   return a.sub(b);
 }
 
 export function checkedMul128(a: BN, b: BN): BN {
   if (a.mul(b).gt(new BN(2).pow(new BN(128)))) {
-    throw new Error('Overflow');
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('checkedMul128', { a: a.toString(), b: b.toString() }),
+    );
   }
   return a.mul(b);
 }
 
 export function checkedMul(a: BN, b: BN): BN {
   if (a.mul(b).gt(new BN(2).pow(new BN(64)))) {
-    throw new Error('Overflow');
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('checkedMul', { a: a.toString(), b: b.toString() }),
+    );
   }
   return a.mul(b);
 }
 
 export function checkedDiv(a: BN, b: BN): BN {
   if (b.eq(new BN(0))) {
-    throw new Error('Cannot divide by zero');
+    throw DarklakeError.fromValidationError(
+      'Division by zero',
+      createErrorContext('checkedDiv', { a: a.toString(), b: b.toString() }),
+    );
   }
   return a.div(b);
 }
 
 export function checkedAdd128(a: BN, b: BN): BN {
   if (a.add(b).gt(new BN(2).pow(new BN(128)))) {
-    throw new Error('Overflow');
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('checkedAdd128', { a: a.toString(), b: b.toString() }),
+    );
   }
   return a.add(b);
 }
 
 export function checkedAdd(a: BN, b: BN): BN {
   if (a.add(b).gt(new BN(2).pow(new BN(64)))) {
-    throw new Error('Overflow');
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('checkedAdd', { a: a.toString(), b: b.toString() }),
+    );
   }
   return a.add(b);
 }
 
 export function check64Bit(a: BN): BN {
   if (a.gt(new BN(2).pow(new BN(64)))) {
-    throw new Error('Overflow');
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('check64Bit', { value: a.toString() }),
+    );
   }
   return a;
 }
@@ -95,18 +116,41 @@ export function check64Bit(a: BN): BN {
 function ceilDiv128(tokenAmount: BN, feeNumerator: BN, feeDenominator: BN): BN {
   try {
     const numerator = checkedMul128(tokenAmount, feeNumerator);
-    const denominator = checkedSub(checkedAdd128(numerator, feeDenominator), new BN(1));
+    const denominator = checkedSub(
+      checkedAdd128(numerator, feeDenominator),
+      new BN(1),
+    );
     return checkedDiv(denominator, feeDenominator);
   } catch (e: any) {
-    throw new Error('Internal error: Failed to ceilDiv: ' + e);
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('ceilDiv128', {
+        tokenAmount: tokenAmount.toString(),
+        feeNumerator: feeNumerator.toString(),
+        feeDenominator: feeDenominator.toString(),
+        originalError: e.message,
+      }),
+    );
   }
 }
 
-export function floorDiv128(tokenAmount: BN, feeNumerator: BN, feeDenominator: BN): BN {
+export function floorDiv128(
+  tokenAmount: BN,
+  feeNumerator: BN,
+  feeDenominator: BN,
+): BN {
   try {
     return checkedDiv(checkedMul128(tokenAmount, feeNumerator), feeDenominator);
-  } catch (e) {
-    throw new Error('Internal error: Failed to floorDiv: ' + e);
+  } catch (e: any) {
+    throw DarklakeError.fromMathError(
+      ErrorCode.MathLibMathOverflow,
+      createErrorContext('floorDiv128', {
+        tokenAmount: tokenAmount.toString(),
+        feeNumerator: feeNumerator.toString(),
+        feeDenominator: feeDenominator.toString(),
+        originalError: e.message,
+      }),
+    );
   }
 }
 // amount 128 bit, tradeFeeRate 64 bit -> convert to 128 bit
@@ -188,7 +232,10 @@ export function rebalancePoolRatio(
   }
 
   // Calculate the remaining destination amount after swap
-  const remainingDestination = checkedSub(currentDestinationAmount, toAmountSwapped);
+  const remainingDestination = checkedSub(
+    currentDestinationAmount,
+    toAmountSwapped,
+  );
   if (!remainingDestination) {
     return {
       fromToLock: new BN(0),
@@ -197,15 +244,15 @@ export function rebalancePoolRatio(
   }
 
   // f64
-  const originalRatio = new Decimal(originalSourceAmount.toString()).div(new Decimal(originalDestinationAmount.toString()));
+  const originalRatio = new Decimal(originalSourceAmount.toString()).div(
+    new Decimal(originalDestinationAmount.toString()),
+  );
 
   // Calculate the exact floating-point value that would give us the perfect ratio
   // f64
-  const exactFromToLock =
-    new Decimal(currentSourceAmount.toString())
-      .sub(
-        new Decimal(remainingDestination.toString()).mul(originalRatio)
-      );
+  const exactFromToLock = new Decimal(currentSourceAmount.toString()).sub(
+    new Decimal(remainingDestination.toString()).mul(originalRatio),
+  );
 
   // Find the optimal integer from_to_lock by testing values around the exact value
   // u64
@@ -215,14 +262,22 @@ export function rebalancePoolRatio(
 
   // Test a range of values around the exact value
   // u64
-  const startVal = new BN(Decimal.max(0, exactFromToLock.sub(new Decimal(1))).toFixed(0));
+  const startVal = new BN(
+    Decimal.max(0, exactFromToLock.sub(new Decimal(1))).toFixed(0),
+  );
   // u64
-  const endVal = new BN(Decimal.min(
-    new Decimal(currentSourceAmount.toString()),
-    Decimal.ceil(exactFromToLock.add(new Decimal(1)))
-  ).toFixed(0));
+  const endVal = new BN(
+    Decimal.min(
+      new Decimal(currentSourceAmount.toString()),
+      Decimal.ceil(exactFromToLock.add(new Decimal(1))),
+    ).toFixed(0),
+  );
 
-  for (let testFromToLock = startVal; testFromToLock <= endVal; testFromToLock = testFromToLock.add(new BN(1))) {
+  for (
+    let testFromToLock = startVal;
+    testFromToLock <= endVal;
+    testFromToLock = testFromToLock.add(new BN(1))
+  ) {
     if (testFromToLock.gt(currentSourceAmount)) {
       continue;
     }
@@ -232,7 +287,9 @@ export function rebalancePoolRatio(
     const newSource = checkedSub(currentSourceAmount, testFromToLockBN);
 
     // f64
-    const newRatio = new Decimal(newSource.toString()).div(new Decimal(remainingDestination.toString()));
+    const newRatio = new Decimal(newSource.toString()).div(
+      new Decimal(remainingDestination.toString()),
+    );
     // f64
     const ratioDiff = newRatio.sub(originalRatio).abs();
 
@@ -244,12 +301,19 @@ export function rebalancePoolRatio(
 
   const fromToLock = bestFromToLock;
   const newSourceAmount = checkedSub(currentSourceAmount, fromToLock);
-  const newRatio = new Decimal(newSourceAmount.toString()).div(new Decimal(remainingDestination.toString()));
+  const newRatio = new Decimal(newSourceAmount.toString()).div(
+    new Decimal(remainingDestination.toString()),
+  );
 
   // Calculate percentage change
-  const percentageChange = (newRatio.sub(originalRatio)).div(originalRatio.mul(new Decimal(100))).abs();
+  const percentageChange = newRatio
+    .sub(originalRatio)
+    .div(originalRatio.mul(new Decimal(100)))
+    .abs();
 
-  const tolerancePercentage = (new Decimal(ratioChangeToleranceRate.toString()).div(new Decimal(MAX_PERCENTAGE.toString())).mul(new Decimal(100)));
+  const tolerancePercentage = new Decimal(ratioChangeToleranceRate.toString())
+    .div(new Decimal(MAX_PERCENTAGE.toString()))
+    .mul(new Decimal(100));
   const isRateToleranceExceeded = percentageChange.gt(tolerancePercentage);
 
   return {
@@ -259,7 +323,7 @@ export function rebalancePoolRatio(
 }
 
 /// Quote the output amount for a given input amount
-/// 
+///
 /// # Arguments
 /// * `exchangeIn` - The amount of input tokens after transfer fees
 /// * `isSwapXToY` - Whether to swap X to Y
@@ -293,8 +357,14 @@ export function quote(
   let availableTokenYAmount: BN;
 
   try {
-    totalTokenXAmount = checkedSub(checkedSub(reserveXBalance, userLockedX), protocolFeeX);
-    totalTokenYAmount = checkedSub(checkedSub(reserveYBalance, userLockedY), protocolFeeY);
+    totalTokenXAmount = checkedSub(
+      checkedSub(reserveXBalance, userLockedX),
+      protocolFeeX,
+    );
+    totalTokenYAmount = checkedSub(
+      checkedSub(reserveYBalance, userLockedY),
+      protocolFeeY,
+    );
 
     availableTokenXAmount = checkedSub(totalTokenXAmount, lockedX);
     availableTokenYAmount = checkedSub(totalTokenYAmount, lockedY);
@@ -309,7 +379,7 @@ export function quote(
 
   // Calculate the output amount using the constant product formula
   let resultAmounts: SwapResultWithFromToLock;
-  
+
   if (isSwapXToY) {
     // Swap X to Y
     const swapResult = swap(
@@ -340,7 +410,7 @@ export function quote(
 
     resultAmounts = {
       fromAmount: swapResult.fromAmount, // applied trade fee + transfer fee
-      toAmount: swapResult.toAmount,     // nothing applied
+      toAmount: swapResult.toAmount, // nothing applied
       fromToLock: rebalanceResult.fromToLock,
       tradeFee: swapResult.tradeFee,
       protocolFee: swapResult.protocolFee,
@@ -354,7 +424,7 @@ export function quote(
       ammConfig.tradeFeeRate,
       ammConfig.protocolFeeRate,
     );
-    
+
     if (!swapResult) {
       return ErrorCode.MathLibMathOverflow;
     }
@@ -367,7 +437,7 @@ export function quote(
       totalTokenXAmount,
       ammConfig.ratioChangeToleranceRate,
     );
-    
+
     if (!rebalanceResult) {
       return ErrorCode.MathLibMathOverflow;
     }
@@ -383,7 +453,7 @@ export function quote(
 
     resultAmounts = {
       fromAmount: swapResult.fromAmount, // applied trade fee + transfer fee
-      toAmount: swapResult.toAmount,     // nothing applied
+      toAmount: swapResult.toAmount, // nothing applied
       fromToLock: rebalanceResult.fromToLock,
       tradeFee: swapResult.tradeFee,
       protocolFee: swapResult.protocolFee,
@@ -401,7 +471,7 @@ export function quote(
 
 export function calculateTransferFee(
   amount: bigint,
-  transferFee: TransferFee
+  transferFee: TransferFee,
 ): { fee: bigint; net: bigint } {
   const { transferFeeBasisPoints: bps, maximumFee: maxFee } = transferFee;
   const feeFromRate = (amount * BigInt(bps)) / BigInt(10_000);

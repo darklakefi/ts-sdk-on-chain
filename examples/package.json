@@ -15,16 +15,33 @@
     "removeLiquidity:ix": "ts-node main.ts removeLiquidity ix",
     "removeLiquidity:tx": "ts-node main.ts removeLiquidity tx",
     "initializePool:ix": "ts-node main.ts initializePool ix",
-    "initializePool:tx": "ts-node main.ts initializePool tx"
+    "initializePool:tx": "ts-node main.ts initializePool tx",
+    "all:ix": "ts-node main.ts all ix",
+    "all:tx": "ts-node main.ts all tx",
+    "quote": "ts-node main.ts quote",
+    "settleFromSol:ix": "ts-node main.ts settleFromSol ix",
+    "settleFromSol:tx": "ts-node main.ts settleFromSol tx",
+    "settleToSol:ix": "ts-node main.ts settleToSol ix",
+    "settleToSol:tx": "ts-node main.ts settleToSol tx",
+    "addLiquiditySol:ix": "ts-node main.ts addLiquiditySol ix",
+    "addLiquiditySol:tx": "ts-node main.ts addLiquiditySol tx",
+    "removeLiquiditySol:ix": "ts-node main.ts removeLiquiditySol ix",
+    "removeLiquiditySol:tx": "ts-node main.ts removeLiquiditySol tx",
+    "initializePoolSol:ix": "ts-node main.ts initializePoolSol ix",
+    "initializePoolSol:tx": "ts-node main.ts initializePoolSol tx",
+    "settleDifferentSettler:ix": "ts-node main.ts settleDifferentSettler ix",
+    "settleDifferentSettler:tx": "ts-node main.ts settleDifferentSettler tx"
   },
   "dependencies": {
+    "bn.js": "^5.2.1",
     "@darklake/ts-sdk-on-chain": "file:..",
     "@solana/web3.js": "^1.87.6",
+    "@solana/spl-token": "^0.4.14",
     "typescript": "^5.3.0",
-    "ts-node": "^10.9.0",
-    "@types/node": "^20.10.0"
+    "ts-node": "^10.9.0"
   },
   "devDependencies": {
-    "@types/node": "^20.10.0"
+    "@types/node": "^20.10.0",
+    "@types/bn.js": "^5.1.5"
   }
 }
